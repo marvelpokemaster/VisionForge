@@ -3,3 +3,4 @@ numpy
 pytest
 pillow
 pycolmap
+open3d
