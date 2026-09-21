@@ -88,10 +88,14 @@ def cmd_reconstruct(args):
     print("[5/5] Spatial Queries Demo...")
     sqe = SpatialQueryEngine(sg)
     print(f" - Room Dimensions: {sqe.get_room_dimensions()}")
-    print(f" - Floor Area: {sqe.get_floor_area():.2f}")
+    floor_area = sqe.get_floor_area()
+    print(f" - Floor Area: {floor_area['value']:.2f} {floor_area['units']}" if floor_area else " - Floor Area: not measurable")
     largest_wall = sqe.get_largest_wall()
     if largest_wall:
         print(f" - Largest Wall: {largest_wall}")
+    nearest_wall = sqe.get_nearest_wall_to_camera()
+    if nearest_wall:
+        print(f" - Camera distance to nearest wall: {nearest_wall['value']:.3f} {nearest_wall['units']} ({nearest_wall['wall_id']})")
 
     print("\nOffline construction complete.")
 
