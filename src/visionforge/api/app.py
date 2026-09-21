@@ -4,12 +4,17 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from visionforge.twin.digital_twin import DigitalTwin
 from visionforge.spatial.queries import SpatialQueryEngine
 from visionforge.api.store import SessionStore
+
+# Vite's default dev server origin. Override with a comma-separated list via
+# VISIONFORGE_CORS_ORIGINS for a different frontend dev port/host.
+DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
 
 # Query methods the /query endpoint is allowed to dispatch to -- an explicit
 # allowlist, not getattr on an arbitrary string, so a request can never reach
@@ -49,6 +54,17 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
 
     app = FastAPI(title="VisionForge API", description="Read-only digital twin API, backed by outputs/<run>/ (see Task G for Supabase persistence).")
     app.state.store = store
+
+    cors_origins = [
+        o.strip() for o in os.environ.get("VISIONFORGE_CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",") if o.strip()
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     def _run_dir_or_404(session_id: str) -> Path:
         run_dir = store.get(session_id)

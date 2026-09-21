@@ -140,3 +140,29 @@ def test_twin_json_is_single_self_contained_file(full_run_dir, tmp_path):
     # the PLY is the one exception: a path, never embedded point data
     assert data["sparse_cloud_path"] == "p1/reconstruction/sparse_cloud.ply"
     assert "points" not in data
+
+
+def test_build_and_save_twin_marks_running_before_success(full_run_dir):
+    """cli.py's _build_and_save_twin must mark the twin stage "running"
+    BEFORE building (so the twin.json it produces truthfully reflects that
+    the twin stage was in progress at read time, not silently absent) and
+    "success" only after the build completes."""
+    from visionforge.cli import _build_and_save_twin
+
+    with open(full_run_dir / "run_status.json") as f:
+        status = json.load(f)
+    assert "twin" not in status["stages"]  # not recorded yet, per the fixture
+
+    twin = _build_and_save_twin(full_run_dir, status)
+
+    # The saved twin.json's own embedded provenance was built while the
+    # twin stage was "running" -- it must say so, not omit the key.
+    with open(full_run_dir / "twin.json") as f:
+        saved = json.load(f)
+    assert saved["provenance"]["stage_status"]["twin"] == "running"
+    assert twin.provenance["stage_status"]["twin"] == "running"
+
+    # run_status.json on disk reflects "success" once the build has finished.
+    with open(full_run_dir / "run_status.json") as f:
+        final_status = json.load(f)
+    assert final_status["stages"]["twin"] == "success"

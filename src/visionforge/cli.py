@@ -22,6 +22,21 @@ def _write_run_status(out_dir: Path, status: dict):
         json.dump(status, f, indent=2)
 
 
+def _build_and_save_twin(out_dir: Path, status: dict) -> DigitalTwin:
+    """Marks the twin stage "running" before the build so a twin.json built
+    from THIS status (or a concurrent reader of run_status.json) reflects
+    the truth, not a silently-missing stage; marks it "success" after."""
+    status["stages"]["twin"] = "running"
+    _write_run_status(out_dir, status)
+
+    twin = DigitalTwin.build_from_run_dir(out_dir)
+    twin.save(out_dir / "twin.json")
+
+    status["stages"]["twin"] = "success"
+    _write_run_status(out_dir, status)
+    return twin
+
+
 def cmd_reconstruct(args):
     print("==================================================")
     print(" VisionForge: Offline Digital Twin Construction")
@@ -124,11 +139,8 @@ def cmd_reconstruct(args):
 
     # Digital Twin
     print("[6/6] Building Digital Twin (twin.json)...")
-    twin = DigitalTwin.build_from_run_dir(out_dir)
-    twin.save(out_dir / "twin.json")
+    _build_and_save_twin(out_dir, status)
     print(f"Digital twin saved to {out_dir / 'twin.json'}")
-    status["stages"]["twin"] = "success"
-    _write_run_status(out_dir, status)
 
     print("\nOffline construction complete.")
 

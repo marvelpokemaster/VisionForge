@@ -229,3 +229,22 @@ def test_get_plane_ply_missing_404(client):
 def test_get_plane_ply_rejects_path_traversal(client):
     resp = client.get("/sessions/final_demo/planes/..%2F..%2F..%2Fetc%2Fpasswd")
     assert resp.status_code in (400, 404)  # never a raw file read outside planes/
+
+
+def test_cors_allows_default_vite_dev_origin(client):
+    resp = client.get("/sessions", headers={"Origin": "http://localhost:5173"})
+    assert resp.status_code == 200
+    assert resp.headers.get("access-control-allow-origin") == "http://localhost:5173"
+
+
+def test_cors_origins_configurable_via_env_var(tmp_path, run_dir, monkeypatch):
+    monkeypatch.setenv("VISIONFORGE_CORS_ORIGINS", "http://example.com:1234")
+    app = create_app(outputs_root=tmp_path)
+    client = TestClient(app)
+
+    resp = client.get("/sessions", headers={"Origin": "http://example.com:1234"})
+    assert resp.headers.get("access-control-allow-origin") == "http://example.com:1234"
+
+    # The default Vite origin is no longer allowed once the env var overrides it.
+    resp2 = client.get("/sessions", headers={"Origin": "http://localhost:5173"})
+    assert "access-control-allow-origin" not in resp2.headers
