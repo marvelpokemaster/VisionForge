@@ -10,3 +10,11 @@ input/
 # Agent skills
 .agents/
 skills-lock.json
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts

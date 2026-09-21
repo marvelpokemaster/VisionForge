@@ -24,7 +24,7 @@
 - Do not introduce ML merely because it makes the problem easier.
 
 ## 3. Current Architecture
-The current architecture is a purely Python-based offline and live-tracking pipeline.
+The backend is a purely Python-based offline and live-tracking pipeline; a React/TypeScript frontend (`frontend/`) consumes it entirely through the API.
 - **Directories:** 
   - `src/visionforge/video/`: Frame extraction (P0).
   - `src/visionforge/reconstruction/`: Feature matching, epipolar geometry, PyCOLMAP incremental SfM (P1).
@@ -33,8 +33,9 @@ The current architecture is a purely Python-based offline and live-tracking pipe
   - `src/visionforge/twin/`: `DigitalTwin` data layer — bundles room_model/cameras/scene_graph + provenance into `twin.json` (see §22).
   - `src/visionforge/api/`: Read-only FastAPI backend over `outputs/<run>/` (see §23).
   - `src/visionforge/live/`: OpenCV KLT + 5-point algorithm visual odometry (P4).
-- **Data Flow:** Video -> Frames -> Features -> Sparse Cloud -> Planar Geometry -> JSON Scene Graph -> `twin.json` -> API -> Digital Twin Viewer.
-- **Dependencies:** `opencv-python`, `numpy`, `open3d`, `pycolmap`, `pytest`, `fastapi`, `uvicorn`, `httpx` (test client).
+  - `frontend/`: Vite + React + TypeScript + three.js digital twin viewer, talking only to the API (see §24). Pinned `package.json` versions; `src/lib/frames.ts` holds the one client-side room-frame transform (for the point cloud PLY — everything else is served pre-transformed).
+- **Data Flow:** Video -> Frames -> Features -> Sparse Cloud -> Planar Geometry -> JSON Scene Graph -> `twin.json` -> API -> `frontend/` viewer (and the standalone Open3D viewer, still available via `cli.py reconstruct`).
+- **Dependencies:** `opencv-python`, `numpy`, `open3d`, `pycolmap`, `pytest`, `fastapi`, `uvicorn`, `httpx` (test client); `frontend/`: `react`, `three`, `vite`, `typescript`, `vitest` (see `frontend/package.json` for pinned versions).
 - **CLI Entry Point:** `src/visionforge/cli.py`
 - **Android/Mobile Components:** None currently exist.
 - **Supabase Integration:** MCP server configured in the developer environment, but **zero** integration exists in the actual source code.
@@ -91,6 +92,8 @@ Based on the repository, these commands currently function:
 - **(Re)build a digital twin from an existing run:** `python -m visionforge.cli twin build --run-dir <dir>`
 - **Run live webcam tracking demo:** `python -m visionforge.cli live`
 - **Run the read-only API server:** `uvicorn visionforge.api.app:app --reload` (reads `outputs/` by default; set `VISIONFORGE_OUTPUTS_ROOT` to point elsewhere). See §23.
+- **Run the frontend dev server:** `cd frontend && npm install && npm run dev` (proxies `/api/*` to `http://localhost:8000` by default; set `VISIONFORGE_API_URL` to point elsewhere). Requires the API server running separately. See §24.
+- **Build the frontend / run its tests:** `cd frontend && npm run build` (TypeScript + Vite production build) / `npm run test` (vitest).
 
 ## 7. Tests & Verification
 
@@ -337,3 +340,52 @@ Note: `stage_status` above doesn't include `"twin": "success"` — `twin.json` i
 **Tests added (`tests/test_api.py`, 21 new, total 83):** a `run_dir` fixture builds a full synthetic run directory in `tmp_path` (room_model with 4 planes, a real camera via `build_scene_graph`, a stub PLY, `run_status.json`) and a `client` fixture wraps it in `TestClient(create_app(outputs_root=tmp_path))`. Covers: auto-discovery, explicit registration of a directory outside the outputs root, 404 on an unknown session, 400 on registering a directory that doesn't exist, every GET endpoint's content, query-by-method (with and without params), query-by-question (including the unsupported case coming back as a normal 200 with `supported: false`, not an error), the method allowlist rejecting both a dunder (`__class__`) and a nonexistent method name, invalid kwargs producing 400 not 500, file-serving for both the cloud and a per-plane PLY (byte-for-byte against the source file), 404 for a missing plane, and the path-traversal id rejected. `pytest tests/`: 83/83 green.
 
 **Verified against the real synthetic-clip run** (`outputs/final_demo`, via `create_app(outputs_root="outputs")` + `TestClient`, not just the test fixture): `GET /sessions` found `final_demo`; `GET /sessions/final_demo` returned the same provenance as `twin.json` (including `"twin": "success"` in `stage_status`, since this run had already completed); `GET /measurements` returned all four fields with their `method`; `POST /query` with `{"question": "How far is the camera from the nearest wall?"}` and with `{"method": "get_camera_trajectory"}` both returned real, non-fabricated answers (`camera_024`, distance `3.67`; 24 cameras, `path_length 14.28`); `GET /cloud` served the real 25,883-byte `sparse_cloud.ply`; `GET /twin` returned the same five top-level keys as the file on disk.
+
+## 24. Session Log — 2026-09-21 (cont.): two backend fixes + Task F frontend
+
+**Fix 1 — honest twin stage-status ordering (`cli.py`):** extracted a `_build_and_save_twin(out_dir, status)` helper that marks `run_status.json`'s `"twin"` stage `"running"` *before* building `twin.json`, and `"success"` only after. Previously `twin.json`'s own embedded provenance snapshot simply omitted the `"twin"` key (it's necessarily built before its own completion is recorded) — now it truthfully shows `"running"`. Test: `test_build_and_save_twin_marks_running_before_success` (`tests/test_twin.py`) asserts the saved `twin.json` shows `"running"` and `run_status.json` on disk shows `"success"` after. Verified on the real clip: `twin.json` now shows `stage_status.twin == "running"`, `run_status.json` shows `"success"`.
+
+**Fix 2 — CORS (`api/app.py`):** `CORSMiddleware`, origins from `VISIONFORGE_CORS_ORIGINS` (comma-separated), defaulting to Vite's dev origins (`http://localhost:5173`, `http://127.0.0.1:5173`). Two tests: default origin allowed; env var override *replaces* rather than extends the default. `pytest tests/`: 86/86 green after both fixes.
+
+**Task F — `frontend/`** (Vite + React 19.2.8 + TypeScript 5.9.3 + three.js 0.186.0, all pinned in `package.json`; raw three.js via refs in a single `Viewer3D` component, not react-three-fiber, to keep full manual control over raycasting/frustum geometry and avoid an extra dependency's own peer-version constraints):
+
+- **Types (`src/types/twin.ts`):** written from the actual JSON `outputs/final_demo/twin.json` and `GET /sessions` returned (`python -c "json.load(...)"` inspected field-by-field first), not from memory — `Measurement`, `Plane` (with `boundary`/`boundary_room`, `in_plane_axes`, etc.), `PlaneIntersection`, `SceneGraphNode`/`Edge` unions for all 8 relation types, `Provenance`, `Twin`.
+- **`src/lib/frames.ts`:** the *only* client-side room-frame transform, used *only* for the point cloud PLY (everything else — plane boundaries, camera positions, intersections, the room bounding polygon — is already served pre-transformed via each API object's `*_room` fields, mirroring `room_model.py`'s own `_room_frame_point`). `toRoomFrame`/`transformPointsToRoomFrame` mirror the Python function exactly (`rel = p - origin; [dot(rel,x_axis), dot(rel,up_axis), dot(rel,z_axis)]`, so room-frame Y = `up_axis`, matching three.js's Y-up convention). Also `quaternionToRotationMatrix` and `cameraAxesRoomFrame` (hand-written, mirroring `scene_graph.py`'s `_quat_to_rotation_matrix`), used to give camera frusta a real, non-approximated orientation from `cameras.json`'s `rotation_quat`.
+- **`src/lib/selectors.ts`:** `getRelationsForNode` (every non-`contains` edge touching a node, either direction) and `formatRelationValue` (the right scalar field per relation type) — what the inspect panel uses to show a selected plane's relations with their supporting number.
+- **`Viewer3D.tsx`:** point cloud (PLYLoader, room-frame-transformed, toggle), planes as filled translucent `DoubleSide` polygons from `boundary_room` (fan-triangulated, floor green / wall red / ceiling blue / unknown grey) with a wireframe outline and a canvas-texture label sprite, intersection segments from `segment_room`, the room bounding polygon placed at the floor's own height, camera frusta (real intrinsics-sized, real orientation) + trajectory polyline (toggle), `OrbitControls`, and raycast click-to-select against the plane meshes with gold highlight.
+- **Panels:** `SessionList` (badge + per-stage status symbols), `MeasurementsPanel` (value/units/method per field, "not measurable" — never `0` — when the API returns `null`), `QueryBox` (posts `{question}`, renders the answer or the unsupported message + supported-question list), `InspectPanel` (type/support/extent/area/normal + relations with their number), `ProvenanceFooter` (source files, `metric_available`, `input_type`), and a synthetic-input banner when `provenance.input_type === "synthetic"`.
+- **Dev proxy:** `vite.config.ts` proxies `/api/*` to `VISIONFORGE_API_URL` (default `http://localhost:8000`) — the frontend code itself never hardcodes a host, only ever fetches `/api/...`.
+
+**Tests (`frontend/src/lib/*.test.ts`, vitest, 16 total):** `frames.test.ts` — an axis-aligned translation case, a **hand-built non-identity permuted-axis case** (`up_axis=[1,0,0]`, `horizontal_axes=[[0,1,0],[0,0,1]]`, asserting `[2,3,4] -> [3,2,4]`, so each output component is checked against the *right* source axis, not just a trivial identity round-trip), a check against a real floor centroid from `twin.json` mapping to `(0,0,0)`, `transformPointsToRoomFrame` on a flat array, `quaternionToRotationMatrix` against the same independently-known 90°-about-Z matrix as the backend's own test, and `cameraAxesRoomFrame` for identity rotation matching COLMAP's Y-down convention directly. `selectors.test.ts` — `getRelationsForNode` excludes `contains`, tags outgoing/incoming correctly, returns everything touching a node; `formatRelationValue` for each relation's scalar field and `null` for `intersects` (no single scalar).
+
+**`npm run build`** (TypeScript project build + Vite production build) — **0 TypeScript errors**:
+```
+> visionforge-frontend@0.1.0 build
+> tsc -b && vite build
+
+vite v7.3.6 building client environment for production...
+transforming...
+✓ 45 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.41 kB │ gzip:   0.28 kB
+dist/assets/index-DUZ04Nvd.css     2.77 kB │ gzip:   1.03 kB
+dist/assets/index-DSzKxFwa.js    778.86 kB │ gzip: 208.88 kB
+(!) Some chunks are larger than 500 kB after minification. [...]
+✓ built in 3.00s
+```
+(The size warning is the normal cost of bundling three.js; not a type or build error.) `npm run test`: 16/16 green.
+
+**Actual visual verification — ran the real stack and looked at it, via the `claude-in-chrome` browser tool (not a description of an unseen render):** started the API (`uvicorn visionforge.api.app:app --port 8000`) against real `outputs/`, started the Vite dev server (`npm run dev -- --port 5173`), confirmed the dev proxy forwards `/api/sessions` correctly, then drove an actual Chrome tab:
+- Session `final_demo` listed with a **SYNTHETIC** badge and 4 green stage checkmarks; the synthetic-input banner was visible on the viewer.
+- Measurements panel showed length/width/height/floor area with real values, `reconstruction_units`, and each field's real `method` (`floor_extent` / `wall_extent_estimate`).
+- **The floor (`plane_000`) rendered flat and the two walls (`plane_001`, `plane_002`) rose vertically from its edges** — confirmed by rotating to a near-edge-on view where the floor appeared as a thin flat sliver with the walls rising perpendicular to it on both sides. This is the room-frame transform working correctly (COLMAP's frame is arbitrary/often Y-down; three.js is Y-up).
+- The point cloud rendered as real scattered points lying on/near the floor polygon, not randomly distributed in space.
+- Plane ID/type labels rendered as billboard sprites at each plane's centroid.
+- **Click-to-select worked**: clicking the floor highlighted it gold and populated the inspect panel with real data — `Type: floor, Support: 1022 points, Extent: 8.544 × 20.565, Area: 170.804, Normal: [-0.342,-0.086,0.936]` — and a real relations list (`perpendicular_to → plane_001 (89.63°)`, `adjacent_to → plane_001 (0.030)`, `perpendicular_to → plane_002 (88.55°)`, more below the fold).
+- **The query box worked end-to-end**: typed "Which wall is largest?", got back `{"wall_id": "plane_001", "area": {"value": 38.32..., "metric": false, "units": "reconstruction_units"}}`. Typed the unsupported "What color is the floor?" and got the correct `Unsupported question.` message with the list of 4 supported phrasings rendered as bullets — not an error, not a guess.
+- **Camera frusta and the trajectory rendered correctly**, though not in the default view: cameras in this reconstruction sit ~18 (arbitrary reconstruction-scale) units above the floor along `up_axis` — well above the wall-extent-estimated room "height" of ~6.56, an honest property of this particular run's own scale (the wall-extent heuristic only sees a partial vertical slice of the wall points; it is not a bug introduced here). Standard mouse-wheel zoom via the browser automation tool didn't register with `OrbitControls`, so genuine `WheelEvent`s were dispatched directly to the canvas via `javascript_tool` to zoom out/in (a legitimate way to drive the real page, not a fabricated shortcut) — this located a chain of **~15+ distinct cyan wireframe frusta strung along an orange trajectory line**, each with a visibly different orientation consistent with a moving/panning camera sweep, isolated by toggling off Point cloud and Geometry.
+- No console errors were found (checked both mid-session and after a full page reload, to catch load-time errors).
+- Closed the tab and stopped both background servers (`taskkill`) when done.
+
+**Not verified:** performance/frame-rate under load, behavior with more than one session, mobile/narrow-viewport layout, and the frusta's absolute visual scale relative to the room (sized from `camera_params`, not independently cross-checked). The existing Open3D viewer (`cli.py reconstruct`'s `--no-viewer`-gated `launch_viewer`) was not touched.
