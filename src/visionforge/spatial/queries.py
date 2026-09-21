@@ -54,17 +54,23 @@ class SpatialQueryEngine:
             "units": "m" if self.metric_available else "reconstruction_units"
         }
 
-    def _measurement_prescaled(self, raw_value) -> Optional[Dict[str, Any]]:
+    def _measurement_prescaled(self, raw_value, method: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """For values (room.length/width/height/floor_area) that already had
         scale_factor applied upstream in room_model.py -- wrap without
-        scaling again."""
+        scaling again. `method` carries how the value was derived
+        ("floor_to_ceiling" | "wall_extent_estimate" | "floor_extent"), so
+        callers can tell a measured ceiling-to-floor height apart from a
+        weaker wall-extent estimate."""
         if raw_value is None:
             return None
-        return {
+        result = {
             "value": raw_value,
             "metric": self.metric_available,
             "units": "m" if self.metric_available else "reconstruction_units"
         }
+        if method is not None:
+            result["method"] = method
+        return result
 
     # ------------------------------------------------------------------
     # Room dimensions
@@ -73,12 +79,14 @@ class SpatialQueryEngine:
     def get_room_length(self) -> Optional[Dict[str, Any]]:
         if not self.nodes_by_type.get("floor"):
             return None
-        return self._measurement_prescaled(self.room_node["properties"].get("length"))
+        props = self.room_node["properties"]
+        return self._measurement_prescaled(props.get("length"), method=props.get("length_method"))
 
     def get_room_width(self) -> Optional[Dict[str, Any]]:
         if not self.nodes_by_type.get("floor"):
             return None
-        return self._measurement_prescaled(self.room_node["properties"].get("width"))
+        props = self.room_node["properties"]
+        return self._measurement_prescaled(props.get("width"), method=props.get("width_method"))
 
     def get_room_height(self) -> Optional[Dict[str, Any]]:
         # height is only ever computed (in room_model.py) when a floor exists
@@ -87,12 +95,14 @@ class SpatialQueryEngine:
             return None
         if not (self.nodes_by_type.get("ceiling") or self.nodes_by_type.get("wall")):
             return None
-        return self._measurement_prescaled(self.room_node["properties"].get("height"))
+        props = self.room_node["properties"]
+        return self._measurement_prescaled(props.get("height"), method=props.get("height_method"))
 
     def get_floor_area(self) -> Optional[Dict[str, Any]]:
         if not self.nodes_by_type.get("floor"):
             return None
-        return self._measurement_prescaled(self.room_node["properties"].get("floor_area"))
+        props = self.room_node["properties"]
+        return self._measurement_prescaled(props.get("floor_area"), method=props.get("floor_area_method"))
 
     def get_room_dimensions(self) -> Dict[str, Any]:
         return {

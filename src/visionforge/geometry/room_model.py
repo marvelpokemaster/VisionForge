@@ -169,32 +169,46 @@ def align_and_measure_room(
         
     # Find floor bounds to estimate length/width
     length, width, height, area = 0.0, 0.0, 0.0, 0.0
-    
+    # Provenance of each measurement, so the query engine/UI can say how
+    # confident to be: "floor_to_ceiling" (measured, strongest), vs.
+    # "wall_extent_estimate" (a weaker estimate from wall point extent when no
+    # ceiling was detected), vs. "floor_extent" (length/width/area, always
+    # derived from the floor boundary's own extent).
+    height_method = None
+    length_method = None
+    width_method = None
+    floor_area_method = None
+
     if coord_sys:
         up = np.array(coord_sys["up_axis"])
         x_ax = np.array(coord_sys["horizontal_axes"][0])
         z_ax = np.array(coord_sys["horizontal_axes"][1])
-        
+
         # Estimate height
         floors = [p for p in planes if p["classification"] == "floor"]
         ceilings = [p for p in planes if p["classification"] == "ceiling"]
-        
+
         if floors and ceilings:
             f_c = np.array(floors[0]["centroid"])
             c_c = np.array(ceilings[0]["centroid"])
             height = abs(np.dot(c_c - f_c, up)) * scale_factor
+            height_method = "floor_to_ceiling"
         elif floors:
             # Try to guess height from the highest point in walls
             f_c = np.array(floors[0]["centroid"])
             max_h = 0
+            found_wall_points = False
             for p in planes:
                 if p["classification"] == "wall":
                     pts = np.asarray(p["cloud"].points)
                     if len(pts) > 0:
+                        found_wall_points = True
                         h = np.max(np.dot(pts - f_c, up))
                         max_h = max(max_h, h)
             height = max_h * scale_factor
-            
+            if found_wall_points:
+                height_method = "wall_extent_estimate"
+
         # Estimate length and width from floor boundary
         if floors:
             floor_pts = np.asarray(floors[0]["cloud"].points)
@@ -202,13 +216,14 @@ def align_and_measure_room(
                 # project onto X and Z
                 x_coords = np.dot(floor_pts, x_ax)
                 z_coords = np.dot(floor_pts, z_ax)
-                
+
                 l_min, l_max = np.min(x_coords), np.max(x_coords)
                 w_min, w_max = np.min(z_coords), np.max(z_coords)
-                
+
                 length = (l_max - l_min) * scale_factor
                 width = (w_max - w_min) * scale_factor
                 area = length * width
+                length_method = width_method = floor_area_method = "floor_extent"
 
     # Per-plane boundary polygon / extent / area / room-frame coordinates,
     # plus room-wide intersection lines and bounding polygon. All computed
@@ -299,6 +314,10 @@ def align_and_measure_room(
             "width": float(width),
             "height": float(height),
             "floor_area": float(area),
+            "length_method": length_method,
+            "width_method": width_method,
+            "height_method": height_method,
+            "floor_area_method": floor_area_method,
             "bounding_polygon_room": bounding_polygon_room
         },
         "planes": out_planes,

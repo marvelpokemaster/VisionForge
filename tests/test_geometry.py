@@ -215,3 +215,44 @@ def test_room_model_geometry_extension(synthetic_room_pcd, tmp_path):
     span_z = poly_arr[:, 1].max() - poly_arr[:, 1].min()
     assert 3.5 < span_x < 6.5
     assert 3.5 < span_z < 6.5
+
+
+def test_room_height_method_wall_extent_estimate_without_ceiling():
+    """Floor + wall, no ceiling: height is still computed by the pre-existing
+    fallback (max wall-point extent above the floor), but its method must be
+    reported as the weaker 'wall_extent_estimate', not 'floor_to_ceiling'."""
+    rng = np.random.default_rng(3)
+    floor_pts = np.column_stack([rng.uniform(0, 4, 300), rng.uniform(0, 4, 300), np.zeros(300)])
+    wall_pts = np.column_stack([np.zeros(200), rng.uniform(0, 4, 200), rng.uniform(0, 2.5, 200)])
+
+    floor = _make_plane_dict("plane_000", floor_pts, (0, 0, 1), 0.0, 500)
+    wall = _make_plane_dict("plane_001", wall_pts, (1, 0, 0), 0.0, 500)
+
+    all_points = np.vstack([floor_pts, wall_pts])
+    planes_data = classify_planes([floor, wall], all_points)
+
+    model = align_and_measure_room(planes_data)
+
+    assert model["room"]["height_method"] == "wall_extent_estimate"
+    assert 2.0 < model["room"]["height"] < 3.0
+    assert model["room"]["length_method"] == "floor_extent"
+    assert model["room"]["width_method"] == "floor_extent"
+    assert model["room"]["floor_area_method"] == "floor_extent"
+
+
+def test_room_height_method_floor_to_ceiling():
+    """Floor + ceiling: the stronger, directly-measured method."""
+    rng = np.random.default_rng(4)
+    floor_pts = np.column_stack([rng.uniform(0, 4, 300), rng.uniform(0, 4, 300), np.zeros(300)])
+    ceiling_pts = np.column_stack([rng.uniform(0, 4, 300), rng.uniform(0, 4, 300), np.full(300, 2.5)])
+
+    floor = _make_plane_dict("plane_000", floor_pts, (0, 0, 1), 0.0, 600)
+    ceiling = _make_plane_dict("plane_001", ceiling_pts, (0, 0, 1), -2.5, 600)
+
+    all_points = np.vstack([floor_pts, ceiling_pts])
+    planes_data = classify_planes([floor, ceiling], all_points)
+
+    model = align_and_measure_room(planes_data)
+
+    assert model["room"]["height_method"] == "floor_to_ceiling"
+    assert 2.0 < model["room"]["height"] < 3.0

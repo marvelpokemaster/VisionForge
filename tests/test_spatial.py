@@ -124,6 +124,8 @@ def box_room_model():
         "scale": {"metric_available": False, "scale_factor": 1.0},
         "room": {
             "length": 4.0, "width": 3.0, "height": 2.5, "floor_area": 12.0,
+            "length_method": "floor_extent", "width_method": "floor_extent",
+            "height_method": "floor_to_ceiling", "floor_area_method": "floor_extent",
             "bounding_polygon_room": [[0, 0], [4, 0], [4, 3], [0, 3]]
         },
         "planes": planes,
@@ -284,10 +286,48 @@ def floor_only_room_model():
         "coordinate_system": {"up_axis": [0, 1, 0], "horizontal_axes": [[1, 0, 0], [0, 0, 1]], "origin": [0, 0, 0]},
         "scale": {"metric_available": False, "scale_factor": 1.0},
         "room": {"length": 4.0, "width": 3.0, "height": 0.0, "floor_area": 12.0,
+                 "length_method": "floor_extent", "width_method": "floor_extent",
+                 "height_method": None, "floor_area_method": "floor_extent",
                  "bounding_polygon_room": [[0, 0], [4, 0], [4, 3], [0, 3]]},
         "planes": [floor],
         "intersections": []
     }
+
+
+@pytest.fixture
+def floor_and_walls_no_ceiling_room_model():
+    """Floor + walls, no ceiling -- height IS measurable (the pre-existing
+    P2 fallback estimates it from wall point extent), but via a weaker
+    method than a measured ceiling: 'wall_extent_estimate'."""
+    floor = _plane("floor", "floor", [0, 1, 0], 0.0, [2, 0, 1.5],
+                    [[0, 0, 0], [4, 0, 0], [4, 0, 3], [0, 0, 3]],
+                    area=12.0, axis_u=[0, 0, -1], axis_v=[1, 0, 0])
+    wall_west = _plane("wall_west", "wall", [1, 0, 0], 0.0, [0, 1.25, 1.5],
+                        [[0, 0, 0], [0, 0, 3], [0, 2.5, 3], [0, 2.5, 0]],
+                        area=7.5, axis_u=[0, 0, 1], axis_v=[0, 1, 0])
+    return {
+        "coordinate_system": {"up_axis": [0, 1, 0], "horizontal_axes": [[1, 0, 0], [0, 0, 1]], "origin": [0, 0, 0]},
+        "scale": {"metric_available": False, "scale_factor": 1.0},
+        "room": {"length": 4.0, "width": 3.0, "height": 2.5, "floor_area": 12.0,
+                 "length_method": "floor_extent", "width_method": "floor_extent",
+                 "height_method": "wall_extent_estimate", "floor_area_method": "floor_extent",
+                 "bounding_polygon_room": [[0, 0], [4, 0], [4, 3], [0, 3]]},
+        "planes": [floor, wall_west],
+        "intersections": []
+    }
+
+
+def test_room_height_method_wall_extent_estimate_without_ceiling(floor_and_walls_no_ceiling_room_model):
+    sg = build_scene_graph(floor_and_walls_no_ceiling_room_model)
+    sqe = SpatialQueryEngine(sg)
+
+    height = sqe.get_room_height()
+    assert height is not None
+    assert height["method"] == "wall_extent_estimate"
+    assert height["value"] == pytest.approx(2.5)
+
+    # length/width/area are still floor_extent, independent of the height method
+    assert sqe.get_room_length()["method"] == "floor_extent"
 
 
 def test_room_dimensions_measurable(box_room_model):
@@ -299,10 +339,10 @@ def test_room_dimensions_measurable(box_room_model):
     height = sqe.get_room_height()
     area = sqe.get_floor_area()
 
-    assert length == {"value": 4.0, "metric": False, "units": "reconstruction_units"}
-    assert width == {"value": 3.0, "metric": False, "units": "reconstruction_units"}
-    assert height == {"value": 2.5, "metric": False, "units": "reconstruction_units"}
-    assert area == {"value": 12.0, "metric": False, "units": "reconstruction_units"}
+    assert length == {"value": 4.0, "metric": False, "units": "reconstruction_units", "method": "floor_extent"}
+    assert width == {"value": 3.0, "metric": False, "units": "reconstruction_units", "method": "floor_extent"}
+    assert height == {"value": 2.5, "metric": False, "units": "reconstruction_units", "method": "floor_to_ceiling"}
+    assert area == {"value": 12.0, "metric": False, "units": "reconstruction_units", "method": "floor_extent"}
 
 
 def test_room_height_none_without_ceiling_or_walls(floor_only_room_model):
