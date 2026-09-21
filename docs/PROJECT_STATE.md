@@ -50,11 +50,11 @@ The current architecture is a purely Python-based offline and live-tracking pipe
 
 ### P2 — Spatial Reconstruction / Room Understanding
 - **Implemented:** Open3D voxel downsampling, statistical outlier removal, iterative RANSAC plane segmentation, coplanar-segment merging, geometric classification (floor/wall/ceiling), scaled room dimension calculation, and (Task A) per-plane boundary polygons/extent/area/PLY export, plane-plane intersection lines, room-frame coordinates, and the room's bounding polygon.
-- **Verification:** Tested on a synthetic 3D point cloud of a box room (`tests/test_geometry.py`, 9 tests) and on the synthetic rendered room video (`data/input/synthetic_box_room.mp4`).
+- **Verification:** Tested on a synthetic 3D point cloud of a box room (`tests/test_geometry.py`, 9 tests) and on a synthetic rendered box-room video (`data/input/synthetic_box_room.mp4`).
 
 ### P3 — Spatial Intelligence
 - **Implemented:** Scene graph generation from P2 JSON: `contains`, `parallel_to`/`perpendicular_to` (with `angle_deg`), boundary-distance-based `adjacent_to`, `intersects` (reusing Task A's segments), `above`/`below` (room-frame height), `inside` (camera-vs-room-polygon), plus camera nodes (hand-written quaternion math) and a trajectory node. `SpatialQueryEngine` (Task C): indexed lookups, unit-aware measurements (`{value, metric, units}` or `None`), wall area from Task A's hull area, surface/camera distance queries with boundary-containment flags, and a regex question dispatcher.
-- **Verification:** `tests/test_spatial.py` (51 tests) — hand-built box room with known answers for every relation and every query method, hand-built-pose tests for the quaternion conversion, and dispatcher tests (4 questions × 3 phrasings + 1 unsupported). Also verified on the synthetic rendered room's reconstruction from `data/input/synthetic_box_room.mp4` (see §19-20).
+- **Verification:** `tests/test_spatial.py` (51 tests) — hand-built box room with known answers for every relation and every query method, hand-built-pose tests for the quaternion conversion, and dispatcher tests (4 questions × 3 phrasings + 1 unsupported). Also verified on the reconstruction of a synthetic rendered box-room video (`data/input/synthetic_box_room.mp4`, see §19-20).
 
 ### P4 — Real-Time / Android Digital Twin
 - **Implemented:** A lightweight live camera tracker (`tracker.py`) using KLT optical flow + Essential Matrix pose recovery + linear triangulation, and an Open3D standalone viewer.
@@ -154,9 +154,11 @@ The next major architectural phase is the Android client:
 9. Keep the offline pipeline reproducible.
 
 ## 15. Recommended Next Task
-**DONE (see §16):** Execute the unified offline pipeline (`visionforge reconstruct`) end-to-end and fix any immediate classical CV pipeline crashes — completed against a synthetic rendered clip (`data/input/synthetic_box_room.mp4`), not physical-camera footage. **STILL OUTSTANDING:** run the same pipeline against a real, physical-camera indoor smartphone video before beginning Android integration (see §12).
+**DONE (see §16):** Execute the unified offline pipeline (`visionforge reconstruct`) end-to-end and fix any immediate classical CV pipeline crashes — completed against a synthetic rendered clip (`data/input/synthetic_box_room.mp4`), not physical-camera footage.
 
-## 16. Session Log — 2026-09-21: CLI pipeline fix + synthetic-clip verification
+**STILL OUTSTANDING (the actual next task):** run the same pipeline against a **real, physical-camera indoor smartphone video** at `data/input/room.mp4` (a distinct file from the synthetic clip above) before beginning Android integration (see §12). **No physical-camera video has been processed yet; all verification to date is on synthetic input.**
+
+## 16. Session Log — 2026-09-21: CLI pipeline fix + synthetic end-to-end verification
 
 **Scope:** Pre-Task-A preparation for the Spatial Intelligence + Digital Twin chain (Geometry → Room Model → Scene Graph → Spatial Queries → Digital Twin → API → Viewer → Supabase).
 
@@ -172,7 +174,7 @@ The next major architectural phase is the Android client:
 
 **Synthetic test artifact:** No physical-camera phone video existed in the repo, and none was available in this environment. Generated `data/input/synthetic_box_room.mp4` (gitignored, not committed) via a from-scratch pure-OpenCV perspective-warp rasterizer (`gen_room_video2.py`, kept in the session scratchpad, not the repo) — a textured 6-face box room rendered from 24 camera poses that dolly sideways while smoothly tilting from floor-level to ceiling-level, giving genuine translation and parallax (no ML, no Open3D scene renderer — Open3D's `OffscreenRenderer` was tried first and produced all-black frames in this environment even for a canonical sphere test; documented and abandoned rather than debugged further, per guidance to not chase obscure environment-specific issues). **This is a rendered synthetic video, not physical-camera footage** — it exercises the pipeline honestly (real feature matching, real triangulation, real RANSAC), but says nothing about robustness to real sensor noise, motion blur, or rolling shutter.
 
-**Ran the fixed pipeline end-to-end** (`visionforge reconstruct --video data/input/synthetic_box_room.mp4 --output outputs/final_demo --no-viewer`), with genuine (non-fabricated) results at every stage:
+**Ran the fixed pipeline end-to-end** (`visionforge reconstruct --video data/input/synthetic_box_room.mp4 --output outputs/final_demo --no-viewer`), with genuine (non-fabricated) results on synthetic input at every stage:
 - P0: 24 frames extracted.
 - P1: two-view stage found 646/664 keypoints, 298 Lowe matches, 258 geometric inliers, 134 triangulated points. Incremental SfM registered all 24 cameras and triangulated 1692 3D points (`p1/reconstruction/sparse_cloud.ply`, `cameras.json` — genuine quaternions/translations/SIMPLE_RADIAL params, confirming the `cam_from_world()` fix works).
 - P2: cleaned to 1457 points, found 4 genuine RANSAC planes — classified `{floor: 2, wall: 1, unknown: 1, ceiling: 0}`. Note: two of the four planes were both classified `floor` (near-identical centroids) — the floor was likely split into two RANSAC segments by the existing classification thresholds; this is pre-existing P2 classification behavior, not a bug introduced here, and per the hard rules P2's RANSAC/classification logic was not touched.
