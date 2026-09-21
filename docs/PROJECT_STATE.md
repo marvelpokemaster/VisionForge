@@ -52,8 +52,8 @@ The current architecture is a purely Python-based offline and live-tracking pipe
 - **Verification:** Tested on a synthetic 3D point cloud of a box room (`tests/test_geometry.py`, 9 tests) and on the real reconstructed room video (`data/input/room.mp4`).
 
 ### P3 — Spatial Intelligence
-- **Implemented:** Scene graph generation from P2 JSON (`contains`, `adjacent_to`, `parallel_to`, `perpendicular_to`), and a spatial query engine (area, dimensions, fit checking).
-- **Verification:** Manually verified via Python script on synthetic P2 outputs. No automated `pytest` suite exists for this module.
+- **Implemented:** Scene graph generation from P2 JSON: `contains`, `parallel_to`/`perpendicular_to` (with `angle_deg`), boundary-distance-based `adjacent_to`, `intersects` (reusing Task A's segments), `above`/`below` (room-frame height), `inside` (camera-vs-room-polygon), plus camera nodes (hand-written quaternion math) and a trajectory node. A spatial query engine (area, dimensions, fit checking) — still to be extended in Task C.
+- **Verification:** `tests/test_spatial.py` (14 tests) — hand-built box room with known answers, plus hand-built-pose tests for the quaternion conversion. Also verified on the real `data/input/room.mp4` reconstruction (see §19).
 
 ### P4 — Real-Time / Android Digital Twin
 - **Implemented:** A lightweight live camera tracker (`tracker.py`) using KLT optical flow + Essential Matrix pose recovery + linear triangulation, and an Open3D standalone viewer.
@@ -207,3 +207,35 @@ Separately, re-running the full `visionforge reconstruct` end-to-end on `data/in
 **Tests added (`tests/test_geometry.py`):** `test_room_model_geometry_extension`, on the existing synthetic 5×5×2.5 box-room fixture — asserts the floor's extent is ~5×5 and its hull area ~20-25 (a real hull is slightly smaller than the bbox product), a wall's extent is ~5×2.5, every plane's `ply_path` points at a real file on disk, at least one real floor↔wall intersection exists as a proper 3D segment in both frames, and the room's bounding polygon spans ~5×5. `pytest tests/`: 9/9 green.
 
 **Real-data run** (`data/input/room.mp4` → `visionforge reconstruct`): 3 planes (`floor:1, wall:2`). Floor `extent = {width: 8.54, height: 20.59}` — matches `room.length`/`room.width` from the pre-existing measurement method exactly, a useful cross-check; hull `area = 171.2` vs. bbox product `175.86` (hull is honestly smaller, as expected for a non-rectangular real boundary). Both floor↔wall pairs produced real intersection segments, each with `segment_room` y-coordinate ≈ 0 at both endpoints — correct, since the intersection of a wall with the floor must lie on the floor, and the room-frame origin is the floor's own centroid. Each plane's PLY was verified to exist on disk with the exact point count matching `support`.
+
+## 19. Session Log — 2026-09-21 (cont.): Task B — plane relationships, cameras, spatial graph
+
+**Small Task-A follow-up (`geometry/room_model.py`):** exposed `coordinate_system["origin"]` (the same reference point `_room_origin` already computed internally) so `scene_graph.py` can place cameras in the room frame consistently with the already-computed `bounding_polygon_room`, without recomputing or guessing an origin.
+
+**`src/visionforge/spatial/scene_graph.py`** (rewritten; `build_scene_graph` signature is now `build_scene_graph(room_model, cameras=None)`):
+- `_quat_to_rotation_matrix(qx, qy, qz, qw)`: hand-written quaternion→matrix conversion (no scipy). `_camera_world_position(rotation_quat, translation)`: `C = -R^T @ t`, matching pycolmap's `cam_from_world` convention (`rotation_quat` is `[x, y, z, w]` of `cam_from_world`).
+- Camera nodes are built from `p1/reconstruction/cameras.json` (now loaded and passed in by `cli.py`), ordered by frame **name** (not pycolmap's internal image id, which is registration order, not temporal order — ids we saw were e.g. 19, 4, 8, 6, 18...). A `trajectory_001` node holds the ordered positions (both frames) and the real piecewise path length.
+- `adjacent_to` no longer uses centroid distance. It now uses `_polygon_min_distance` (edge-to-edge distance between the two planes' Task-A boundary polygons, via a hand-written robust 3D segment-segment distance routine) against a scale-relative threshold (`ADJACENCY_DISTANCE_FRACTION = 0.05` of the room's own boundary-derived bounding-box diagonal, i.e. the same style of scale-relative threshold as P2's RANSAC/voxel sizing, just derived from `room_model.json`'s own plane boundaries since `scene_graph.py` doesn't have the raw cloud). The old `centroid < 10.0` heuristic is fully removed.
+- `intersects` edges are a direct pass-through of `room_model["intersections"]` (Task A) — not recomputed.
+- `above`/`below`: compared along `up_axis` via each entity's `centroid_room`/`position_room` y-component, both between horizontal surfaces (floor/ceiling pairs) and between every camera and every floor/ceiling plane, gated by a scale-relative `ABOVE_BELOW_EPSILON_FRACTION = 0.02` to avoid noise-level differences producing spurious edges. Both directions (`above` and `below`) are added explicitly so either can be queried directly.
+- `inside`: hand-written ray-casting point-in-polygon test (`_point_in_polygon_2d`, PNPOLY) of each camera's room-frame `(x, z)` against `room.bounding_polygon_room`. **Always emits an edge, even when `inside: false`** — an out-of-polygon camera is reported with its `distance_to_boundary`, never silently dropped.
+- Every relation edge now carries its supporting number: `angle_deg` (parallel/perpendicular), `distance` (adjacent_to), `height_difference` (above/below), `segment`/`point`/`direction` (intersects, both frames), `inside`/`distance_to_boundary` (inside) — not just the relation label.
+- Plane node properties were also expanded to carry the full Task A geometry (`extent`, `area`, `boundary`/`boundary_room`, `centroid_room`, `ply_path`), for the query engine and UI to use directly without re-deriving it.
+
+**`tests/test_spatial.py`** (new, 14 tests): hand-built-pose quaternion tests independent of the scene graph (a known 90°-about-Z rotation checked against its hand-derived matrix and against a camera-center round-trip; a second rotated-pose round-trip; a known point-in-polygon case) + a hand-built 4×3×2.5 box room (identity room frame, so every expected number is computable by hand) covering every relation type: `contains`, `parallel_to`/`perpendicular_to` with exact `angle_deg` (0°/90°), `adjacent_to` with exact `distance` (0.0, since the hand-built walls genuinely share an edge with the floor), `intersects` (asserts the exact hand-supplied segment is passed through unchanged), `above`/`below` (exact `height_difference` of 2.5 and 1.25), `inside` for both an interior and a **deliberately outside** camera (asserting the outside case is still reported, with the correct `distance_to_boundary` of 6.0), and the trajectory node's path length. `pytest tests/`: 23/23 green.
+
+**Real-data run** (`data/input/room.mp4`), edge counts by relation type:
+
+| Relation | Before (old centroid heuristic, no cameras) | After (Task B) |
+|---|---|---|
+| contains | 3 | 28 |
+| parallel_to | 1 | 1 |
+| perpendicular_to | 2 | 2 |
+| adjacent_to | 0 | 2 |
+| intersects | 0 | 2 |
+| above | 0 | 24 |
+| below | 0 | 24 |
+| inside | 0 | 24 |
+| **total** | **6** | **107** |
+
+Notable honest details from the real run: `adjacent_to` distances are `0.34` and `0.05` (reconstruction units, well inside the ~1.7-unit scale-relative threshold for this cloud); `perpendicular_to` angles are `89.55°`/`87.43°` and `parallel_to` is `3.33°` — close to but not exactly 90°/0°, correctly reflecting real reconstruction noise rather than fabricated perfection. **All 24 real camera positions land inside `room.bounding_polygon_room`** (0 outside) — the specifically requested real-data check. Trajectory path length: `15.67` (reconstruction units) over 24 cameras.

@@ -74,7 +74,13 @@ def cmd_reconstruct(args):
     with open(room_model_file, "r") as f:
         room_model = json.load(f)
 
-    sg = build_scene_graph(room_model)
+    cameras_file = p1_dir / "reconstruction" / "cameras.json"
+    cameras = None
+    if cameras_file.exists():
+        with open(cameras_file, "r") as f:
+            cameras = json.load(f)
+
+    sg = build_scene_graph(room_model, cameras=cameras)
     save_scene_graph(sg, out_dir / "scene_graph.json")
     print(f"Scene graph saved to {out_dir / 'scene_graph.json'}")
 

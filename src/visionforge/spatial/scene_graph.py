@@ -1,23 +1,193 @@
 import numpy as np
 import json
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
-def build_scene_graph(room_model: Dict[str, Any]) -> Dict[str, Any]:
+# Scale-relative thresholds (fractions of the room's own bounding-box diagonal,
+# derived from the plane boundaries already computed in Task A). Monocular SfM
+# scale is arbitrary, so no absolute distance constant belongs here.
+ADJACENCY_DISTANCE_FRACTION = 0.05
+ABOVE_BELOW_EPSILON_FRACTION = 0.02
+
+PARALLEL_DOT_THRESHOLD = 0.85
+PERPENDICULAR_DOT_THRESHOLD = 0.25
+
+
+def _quat_to_rotation_matrix(qx: float, qy: float, qz: float, qw: float) -> np.ndarray:
+    """Unit-quaternion [x, y, z, w] -> 3x3 rotation matrix (hand-written, no scipy)."""
+    n = (qx * qx + qy * qy + qz * qz + qw * qw) ** 0.5
+    qx, qy, qz, qw = qx / n, qy / n, qz / n, qw / n
+    return np.array([
+        [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
+        [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
+        [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)]
+    ])
+
+
+def _camera_world_position(rotation_quat: List[float], translation: List[float]) -> np.ndarray:
+    """cameras.json stores cam_from_world: p_cam = R @ p_world + t. The camera
+    center in world coordinates is the point that maps to the camera's own
+    origin, i.e. R @ C + t = 0 -> C = -R^T @ t."""
+    qx, qy, qz, qw = rotation_quat
+    R = _quat_to_rotation_matrix(qx, qy, qz, qw)
+    t = np.array(translation, dtype=float)
+    return -R.T @ t
+
+
+def _room_frame_point(p: np.ndarray, origin: np.ndarray, x_axis: np.ndarray, up_axis: np.ndarray, z_axis: np.ndarray) -> List[float]:
+    rel = np.array(p) - origin
+    return [float(np.dot(rel, x_axis)), float(np.dot(rel, up_axis)), float(np.dot(rel, z_axis))]
+
+
+def _segment_segment_distance_3d(p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, p4: np.ndarray) -> float:
+    """Minimum distance between 3D segments [p1,p2] and [p3,p4]."""
+    EPS = 1e-9
+    d1 = p2 - p1
+    d2 = p4 - p3
+    r = p1 - p3
+    a = d1 @ d1
+    e = d2 @ d2
+    f = d2 @ r
+
+    if a <= EPS and e <= EPS:
+        return float(np.linalg.norm(p1 - p3))
+
+    if a <= EPS:
+        s = 0.0
+        t = np.clip(f / e, 0.0, 1.0)
+    else:
+        c = d1 @ r
+        if e <= EPS:
+            t = 0.0
+            s = np.clip(-c / a, 0.0, 1.0)
+        else:
+            b = d1 @ d2
+            denom = a * e - b * b
+            s = np.clip((b * f - c * e) / denom, 0.0, 1.0) if denom > EPS else 0.0
+            t = (b * s + f) / e
+            if t < 0.0:
+                t = 0.0
+                s = np.clip(-c / a, 0.0, 1.0)
+            elif t > 1.0:
+                t = 1.0
+                s = np.clip((b - c) / a, 0.0, 1.0)
+
+    closest1 = p1 + s * d1
+    closest2 = p3 + t * d2
+    return float(np.linalg.norm(closest1 - closest2))
+
+
+def _polygon_min_distance(hull_a: List[List[float]], hull_b: List[List[float]]) -> float:
+    """Minimum distance between two (possibly degenerate) 3D boundary polygons,
+    computed edge-to-edge -- correct for convex polygons that only touch or
+    approach along a boundary, which is the case for real room surfaces."""
+    a = np.array(hull_a, dtype=float)
+    b = np.array(hull_b, dtype=float)
+    if len(a) == 0 or len(b) == 0:
+        return float("inf")
+
+    na, nb = len(a), len(b)
+    edges_a = [(a[i], a[(i + 1) % na]) for i in range(na)] if na >= 2 else [(a[0], a[0])]
+    edges_b = [(b[i], b[(i + 1) % nb]) for i in range(nb)] if nb >= 2 else [(b[0], b[0])]
+
+    best = float("inf")
+    for pa1, pa2 in edges_a:
+        for pb1, pb2 in edges_b:
+            best = min(best, _segment_segment_distance_3d(pa1, pa2, pb1, pb2))
+    return best
+
+
+def _point_in_polygon_2d(point: List[float], polygon: List[List[float]]) -> bool:
+    """Ray-casting point-in-polygon test (PNPOLY)."""
+    x, z = point
+    n = len(polygon)
+    if n < 3:
+        return False
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, zi = polygon[i]
+        xj, zj = polygon[j]
+        if (zi > z) != (zj > z):
+            x_intersect = (xj - xi) * (z - zi) / (zj - zi + 1e-15) + xi
+            if x < x_intersect:
+                inside = not inside
+        j = i
+    return inside
+
+
+def _point_segment_distance_2d(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
+    d = b - a
+    denom = d @ d
+    if denom < 1e-15:
+        return float(np.linalg.norm(p - a))
+    t = np.clip(((p - a) @ d) / denom, 0.0, 1.0)
+    return float(np.linalg.norm(p - (a + t * d)))
+
+
+def _point_polygon_distance_2d(point: List[float], polygon: List[List[float]]) -> float:
+    n = len(polygon)
+    if n == 0:
+        return float("inf")
+    p = np.array(point, dtype=float)
+    if n == 1:
+        return float(np.linalg.norm(p - np.array(polygon[0])))
+    best = float("inf")
+    for i in range(n):
+        a = np.array(polygon[i], dtype=float)
+        b = np.array(polygon[(i + 1) % n], dtype=float)
+        best = min(best, _point_segment_distance_2d(p, a, b))
+    return best
+
+
+def _room_scale(planes: List[Dict[str, Any]]) -> float:
+    """Bounding-box diagonal of every plane's boundary polygon (or centroid,
+    if a boundary isn't available) -- the room's own scale, used to derive
+    every distance threshold below instead of an absolute constant."""
+    pts = []
+    for p in planes:
+        boundary = p.get("boundary")
+        if boundary:
+            pts.extend(boundary)
+        else:
+            pts.append(p["centroid"])
+    if len(pts) < 2:
+        return 1.0
+    arr = np.array(pts, dtype=float)
+    diag = float(np.linalg.norm(arr.max(axis=0) - arr.min(axis=0)))
+    return diag if diag > 1e-9 else 1.0
+
+
+def build_scene_graph(room_model: Dict[str, Any], cameras: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     nodes = []
     edges = []
-    
-    # Add room node
+
     room_id = "room_001"
     nodes.append({
         "id": room_id,
         "type": "room",
-        "properties": room_model.get("room", {})
+        "properties": dict(room_model.get("room", {}))
     })
-    
+
     planes = room_model.get("planes", [])
-    
-    # Add plane nodes
+    coord_sys = room_model.get("coordinate_system") or {}
+    up_axis = np.array(coord_sys["up_axis"]) if "up_axis" in coord_sys else None
+    x_axis = np.array(coord_sys["horizontal_axes"][0]) if "horizontal_axes" in coord_sys else None
+    z_axis = np.array(coord_sys["horizontal_axes"][1]) if "horizontal_axes" in coord_sys else None
+    if "origin" in coord_sys:
+        origin = np.array(coord_sys["origin"])
+    elif planes:
+        origin = np.mean([p["centroid"] for p in planes], axis=0)
+    else:
+        origin = np.zeros(3)
+
+    bounding_polygon_room = room_model.get("room", {}).get("bounding_polygon_room", [])
+
+    room_scale = _room_scale(planes) if planes else 1.0
+    adjacency_threshold = ADJACENCY_DISTANCE_FRACTION * room_scale
+    height_epsilon = ABOVE_BELOW_EPSILON_FRACTION * room_scale
+
+    # Plane nodes
     for p in planes:
         nodes.append({
             "id": p["id"],
@@ -26,53 +196,139 @@ def build_scene_graph(room_model: Dict[str, Any]) -> Dict[str, Any]:
                 "equation": p["equation"],
                 "normal": p["normal"],
                 "centroid": p["centroid"],
-                "support": p["support"]
+                "centroid_room": p.get("centroid_room"),
+                "support": p["support"],
+                "extent": p.get("extent"),
+                "area": p.get("area"),
+                "boundary": p.get("boundary"),
+                "boundary_room": p.get("boundary_room"),
+                "ply_path": p.get("ply_path")
             }
         })
-        
-        # Every plane is contained by the room
-        edges.append({
-            "source": room_id,
-            "target": p["id"],
-            "relation": "contains"
-        })
-        
-    # Discover geometric relationships between planes
+        edges.append({"source": room_id, "target": p["id"], "relation": "contains"})
+
+    # Plane-plane relationships
     for i in range(len(planes)):
         for j in range(i + 1, len(planes)):
-            p1 = planes[i]
-            p2 = planes[j]
+            p1, p2 = planes[i], planes[j]
             n1 = np.array(p1["normal"])
             n2 = np.array(p2["normal"])
-            
-            dot_prod = abs(np.dot(n1, n2))
-            
-            if dot_prod > 0.85:
+            dot_prod = float(np.dot(n1, n2))
+            abs_dot = abs(dot_prod)
+            angle_deg = float(np.degrees(np.arccos(np.clip(abs_dot, -1.0, 1.0))))
+
+            if abs_dot > PARALLEL_DOT_THRESHOLD:
                 edges.append({
-                    "source": p1["id"],
-                    "target": p2["id"],
-                    "relation": "parallel_to"
+                    "source": p1["id"], "target": p2["id"], "relation": "parallel_to",
+                    "angle_deg": angle_deg
                 })
-            elif dot_prod < 0.25:
+            elif abs_dot < PERPENDICULAR_DOT_THRESHOLD:
                 edges.append({
-                    "source": p1["id"],
-                    "target": p2["id"],
-                    "relation": "perpendicular_to"
+                    "source": p1["id"], "target": p2["id"], "relation": "perpendicular_to",
+                    "angle_deg": angle_deg
                 })
-                
-                # Check if they are adjacent/intersecting by looking at centroid distances
-                c1 = np.array(p1["centroid"])
-                c2 = np.array(p2["centroid"])
-                dist = np.linalg.norm(c1 - c2)
-                # Heuristic: if centroids are reasonably close relative to typical room scale, call them adjacent
-                # For an indoor room, 10 units might be close enough
-                if dist < 10.0:
+
+                boundary_a = p1.get("boundary") or [p1["centroid"]]
+                boundary_b = p2.get("boundary") or [p2["centroid"]]
+                min_dist = _polygon_min_distance(boundary_a, boundary_b)
+                if min_dist <= adjacency_threshold:
                     edges.append({
-                        "source": p1["id"],
-                        "target": p2["id"],
-                        "relation": "adjacent_to"
+                        "source": p1["id"], "target": p2["id"], "relation": "adjacent_to",
+                        "distance": float(min_dist)
                     })
-                    
+
+            # above / below between horizontal surfaces, via room-frame height
+            if p1["type"] in ("floor", "ceiling") and p2["type"] in ("floor", "ceiling"):
+                h1 = (p1.get("centroid_room") or [0, 0, 0])[1]
+                h2 = (p2.get("centroid_room") or [0, 0, 0])[1]
+                diff = h1 - h2
+                if diff > height_epsilon:
+                    edges.append({"source": p1["id"], "target": p2["id"], "relation": "above", "height_difference": float(diff)})
+                    edges.append({"source": p2["id"], "target": p1["id"], "relation": "below", "height_difference": float(diff)})
+                elif diff < -height_epsilon:
+                    edges.append({"source": p2["id"], "target": p1["id"], "relation": "above", "height_difference": float(-diff)})
+                    edges.append({"source": p1["id"], "target": p2["id"], "relation": "below", "height_difference": float(-diff)})
+
+    # intersects: reuse Task A's precomputed intersection segments, never recomputed here
+    for inter in room_model.get("intersections", []):
+        edges.append({
+            "source": inter["plane_a"],
+            "target": inter["plane_b"],
+            "relation": "intersects",
+            "point": inter["point"],
+            "direction": inter["direction"],
+            "segment": inter["segment"],
+            "segment_room": inter.get("segment_room")
+        })
+
+    # Camera nodes + trajectory
+    if cameras:
+        ordered = sorted(cameras, key=lambda c: c.get("name") or str(c.get("id", "")))
+        camera_positions = []
+        camera_positions_room = []
+
+        for cam in ordered:
+            pos = _camera_world_position(cam["rotation_quat"], cam["translation"])
+            pos_room = _room_frame_point(pos, origin, x_axis, up_axis, z_axis) if up_axis is not None else None
+
+            cam_id = f"camera_{cam['id']:03d}"
+            nodes.append({
+                "id": cam_id,
+                "type": "camera",
+                "properties": {
+                    "name": cam.get("name"),
+                    "position": pos.tolist(),
+                    "position_room": pos_room,
+                    "camera_model": cam.get("camera_model"),
+                    "camera_params": cam.get("camera_params")
+                }
+            })
+            edges.append({"source": room_id, "target": cam_id, "relation": "contains"})
+            camera_positions.append(pos)
+            camera_positions_room.append(pos_room)
+
+            # inside: camera vs room bounding polygon -- always reported, never dropped
+            if pos_room is not None and bounding_polygon_room:
+                point_xz = [pos_room[0], pos_room[2]]
+                is_inside = _point_in_polygon_2d(point_xz, bounding_polygon_room)
+                dist_to_boundary = 0.0 if is_inside else _point_polygon_distance_2d(point_xz, bounding_polygon_room)
+                edges.append({
+                    "source": cam_id, "target": room_id, "relation": "inside",
+                    "inside": bool(is_inside), "distance_to_boundary": float(dist_to_boundary)
+                })
+
+            # above / below vs floor / ceiling
+            if pos_room is not None:
+                for p in planes:
+                    if p["type"] not in ("floor", "ceiling"):
+                        continue
+                    h_plane = (p.get("centroid_room") or [0, 0, 0])[1]
+                    diff = pos_room[1] - h_plane
+                    if diff > height_epsilon:
+                        edges.append({"source": cam_id, "target": p["id"], "relation": "above", "height_difference": float(diff)})
+                        edges.append({"source": p["id"], "target": cam_id, "relation": "below", "height_difference": float(diff)})
+                    elif diff < -height_epsilon:
+                        edges.append({"source": p["id"], "target": cam_id, "relation": "above", "height_difference": float(-diff)})
+                        edges.append({"source": cam_id, "target": p["id"], "relation": "below", "height_difference": float(-diff)})
+
+        if camera_positions:
+            path_length = float(sum(
+                np.linalg.norm(camera_positions[k + 1] - camera_positions[k])
+                for k in range(len(camera_positions) - 1)
+            ))
+            trajectory_id = "trajectory_001"
+            nodes.append({
+                "id": trajectory_id,
+                "type": "trajectory",
+                "properties": {
+                    "positions": [pos.tolist() for pos in camera_positions],
+                    "positions_room": camera_positions_room,
+                    "num_cameras": len(camera_positions),
+                    "path_length": path_length
+                }
+            })
+            edges.append({"source": room_id, "target": trajectory_id, "relation": "contains"})
+
     return {
         "nodes": nodes,
         "edges": edges

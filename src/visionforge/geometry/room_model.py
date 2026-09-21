@@ -225,6 +225,7 @@ def align_and_measure_room(
         x_ax = np.array(coord_sys["horizontal_axes"][0])
         z_ax = np.array(coord_sys["horizontal_axes"][1])
         origin = _room_origin(planes)
+        coord_sys["origin"] = origin.tolist()  # reconstruction-frame reference point for the room frame
 
         for p in planes:
             normal = np.array(p["normal"])
