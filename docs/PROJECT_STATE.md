@@ -31,11 +31,12 @@ The backend is a purely Python-based offline and live-tracking pipeline; a React
   - `src/visionforge/geometry/`: Point cloud cleaning, RANSAC plane extraction, room modeling (P2).
   - `src/visionforge/spatial/`: Scene graph generation, shared geometry utilities, spatial queries, and Open3D visualization (P3/P4).
   - `src/visionforge/twin/`: `DigitalTwin` data layer — bundles room_model/cameras/scene_graph + provenance into `twin.json` (see §22).
-  - `src/visionforge/api/`: Read-only FastAPI backend over `outputs/<run>/` (see §23).
+  - `src/visionforge/api/`: Read-only + persist FastAPI backend over `outputs/<run>/` and the configured `PersistenceBackend` (see §23, §25).
+  - `src/visionforge/persistence/`: `PersistenceBackend` interface, `LocalJsonBackend` (default, zero-config, writes under `outputs/`) and `SupabaseBackend` (opt-in via `SUPABASE_URL`/`SUPABASE_KEY`). See §25 and `docs/supabase.md`.
   - `src/visionforge/live/`: OpenCV KLT + 5-point algorithm visual odometry (P4).
   - `frontend/`: Vite + React + TypeScript + three.js digital twin viewer, talking only to the API (see §24). Pinned `package.json` versions; `src/lib/frames.ts` holds the one client-side room-frame transform (for the point cloud PLY — everything else is served pre-transformed).
-- **Data Flow:** Video -> Frames -> Features -> Sparse Cloud -> Planar Geometry -> JSON Scene Graph -> `twin.json` -> API -> `frontend/` viewer (and the standalone Open3D viewer, still available via `cli.py reconstruct`).
-- **Dependencies:** `opencv-python`, `numpy`, `open3d`, `pycolmap`, `pytest`, `fastapi`, `uvicorn`, `httpx` (test client); `frontend/`: `react`, `three`, `vite`, `typescript`, `vitest` (see `frontend/package.json` for pinned versions).
+- **Data Flow:** Video -> Frames -> Features -> Sparse Cloud -> Planar Geometry -> JSON Scene Graph -> `twin.json` -> API (+ optional persist to Supabase/local JSON) -> `frontend/` viewer (and the standalone Open3D viewer, still available via `cli.py reconstruct`).
+- **Dependencies:** `opencv-python`, `numpy`, `open3d`, `pycolmap`, `pytest`, `fastapi`, `uvicorn`, `httpx` (test client), `supabase` (only imported when `SupabaseBackend` is actually selected); `frontend/`: `react`, `three`, `vite`, `typescript`, `vitest` (see `frontend/package.json` for pinned versions).
 - **CLI Entry Point:** `src/visionforge/cli.py`
 - **Android/Mobile Components:** None currently exist.
 - **Supabase Integration:** MCP server configured in the developer environment, but **zero** integration exists in the actual source code.
@@ -88,8 +89,9 @@ src/visionforge/
 ## 6. Current CLI / Commands
 Based on the repository, these commands currently function:
 - **Run automated tests:** `source venv/bin/activate && PYTHONPATH=src pytest tests/`
-- **Run offline reconstruction pipeline:** `python -m visionforge.cli reconstruct --video <path_to_mp4> [--output <dir>] [--no-viewer] [--input-type synthetic|real]` — writes `run_status.json` and, as its last step, `twin.json` into `<dir>`.
+- **Run offline reconstruction pipeline:** `python -m visionforge.cli reconstruct --video <path_to_mp4> [--output <dir>] [--no-viewer] [--input-type synthetic|real] [--persist]` — writes `run_status.json` and, as its last step, `twin.json` into `<dir>`; `--persist` also saves through the configured `PersistenceBackend` (see §25).
 - **(Re)build a digital twin from an existing run:** `python -m visionforge.cli twin build --run-dir <dir>`
+- **Persist an existing run directory:** `python -m visionforge.cli persist --run-dir <dir> [--session-id <id>]`. See §25 / `docs/supabase.md`.
 - **Run live webcam tracking demo:** `python -m visionforge.cli live`
 - **Run the read-only API server:** `uvicorn visionforge.api.app:app --reload` (reads `outputs/` by default; set `VISIONFORGE_OUTPUTS_ROOT` to point elsewhere). See §23.
 - **Run the frontend dev server:** `cd frontend && npm install && npm run dev` (proxies `/api/*` to `http://localhost:8000` by default; set `VISIONFORGE_API_URL` to point elsewhere). Requires the API server running separately. See §24.
@@ -131,8 +133,8 @@ Based on the repository, these commands currently function:
 - **Working Tree:** Clean (excluding untracked agent skills).
 
 ## 11. Supabase Role
-- **Current State:** The Supabase MCP is configured in the local AI environment, but Supabase is **NOT** integrated into the VisionForge Python source code.
-- **Intended Boundary:** Supabase SHOULD be used for persisting project state, saving JSON scene graphs, storing room measurements, and handling asynchronous sync. It MUST NOT be used for streaming raw camera frames, high-frequency CV processing, or frame-by-frame Android tracking round-trips.
+- **Current State (updated, Task G / §25):** Supabase integration now exists in `src/visionforge/persistence/` as an opt-in `PersistenceBackend`, selected only via `SUPABASE_URL`/`SUPABASE_KEY` env vars (`LocalJsonBackend` is the zero-config default). No Supabase MCP was configured in the environment this was built in, so no real database round-trip has been run against an actual Supabase project yet — `SupabaseBackend` is tested against an in-memory fake client only. See `docs/supabase.md` for setup and §25 for what was and wasn't verified.
+- **Intended Boundary:** Supabase SHOULD be used for persisting project state, saving JSON scene graphs, storing room measurements, and handling asynchronous sync. It MUST NOT be used for streaming raw camera frames, high-frequency CV processing, or frame-by-frame Android tracking round-trips. (This boundary is now enforced by the schema itself, not just documentation — see `supabase/migrations/0001_init.sql` and `docs/supabase.md`'s "What is never stored".)
 
 ## 12. Immediate Next Objective
 The immediate next objective is **PHYSICAL-CAMERA VERIFICATION**.
@@ -389,3 +391,34 @@ dist/assets/index-DSzKxFwa.js    778.86 kB │ gzip: 208.88 kB
 - Closed the tab and stopped both background servers (`taskkill`) when done.
 
 **Not verified:** performance/frame-rate under load, behavior with more than one session, mobile/narrow-viewport layout, and the frusta's absolute visual scale relative to the room (sized from `camera_params`, not independently cross-checked). The existing Open3D viewer (`cli.py reconstruct`'s `--no-viewer`-gated `launch_viewer`) was not touched.
+
+## 25. Session Log — 2026-09-21 (cont.): Task G — Supabase persistence
+
+**New module `src/visionforge/persistence/`:**
+- `backend.py`: `PersistenceBackend` ABC — `save_session`, `save_room_model`/`save_scene_graph`/`save_twin` (each returns the new version number), `save_measurements`, `save_experiment_result`, `save_processing_status`, `list_sessions`, `get_twin`.
+- `local_backend.py`: `LocalJsonBackend(outputs_root=Path("outputs"))` — zero-config default. Writes each session under `outputs/<session_id>/persistence/`: `session.json` (created_at preserved across updates), `room_models/vN.json` / `scene_graphs/vN.json` / `twins/vN.json` (append-only, versioned by scanning existing `vN.json` filenames), `measurements.json`, `experiment_results/<key>.json`, `processing_status.json`.
+- `supabase_backend.py`: `SupabaseBackend(url, key, client=None)` — `from supabase import create_client` at the top of *this module only*, so it's only ever imported (and only ever triggers the `supabase` import) when this specific module is loaded. `client` can be injected (e.g. a fake, for tests), bypassing `create_client` entirely. Versioning for `room_models`/`scene_graphs`/`twins` queries `select("version").eq("session_id", ...).order("version", desc=True).limit(1)` and inserts at `max + 1` (or `1`), independently per session.
+- `__init__.py`: `get_backend(outputs_root=None)` reads `SUPABASE_URL`/`SUPABASE_KEY` — both set → lazily `from visionforge.persistence.supabase_backend import SupabaseBackend` (the only place `supabase-py` gets imported) and prints one line; otherwise returns `LocalJsonBackend(outputs_root=...)` and prints one line. `outputs_root` lets the API point `LocalJsonBackend` at the same root as its `SessionStore`, instead of always the real `outputs/`. `persist_run(backend, session_id, run_dir)`: the single shared function both the API's `POST /sessions/{id}/persist` and the `visionforge persist` CLI command call — builds a `DigitalTwin` from `run_dir`, derives `video_name`/`input_type`/`overall_status` from its provenance and `run_status.json`, and saves session/room_model/scene_graph/measurements (via `SpatialQueryEngine.get_room_dimensions()`, skipping any field that's `None` — never a fabricated `0`)/twin/processing_status, returning `{session_id, saved: [...]}`.
+
+**`supabase/migrations/0001_init.sql`:** `sessions`, `room_models`/`scene_graphs`/`twins` (`session_id` FK, `version`, `payload jsonb`, `created_at`, `unique(session_id, version)`), `measurements` (one row per measurement name, not a jsonb blob — directly queryable), `experiment_results` (`session_id`, `key`, `json jsonb` — reserved, not yet written by the pipeline), `processing_status` (`session_id`, `stage`, `status`, `updated_at`). Every statement is `if not exists`, safe to re-run. No table stores frames, PLY point data, or per-frame poses as their own rows — only JSON artefacts (which themselves reference the PLY by path) and the derived `measurements` rows.
+
+**API (`api/app.py`):** `create_app` now also builds `backend = get_backend(outputs_root=root)`, stored on `app.state.backend`.
+- `POST /sessions/{session_id}/persist` → `persist_run(backend, session_id, run_dir)`.
+- `GET /sessions` merges local `SessionStore` discovery with `backend.list_sessions()`; a session known only to the backend (no local run directory — the case a real Supabase project would surface) gets a reduced summary (`run_dir: null`, minimal provenance built from the `sessions` row).
+- `GET /sessions/{session_id}/twin` now checks whether the local run directory still exists first; if not, falls back to `backend.get_twin(session_id)`; 404 only if neither exists.
+
+**CLI (`cli.py`):** `reconstruct` gained `--persist` (persists as an extra step after building `twin.json`, using `get_backend()` with no `outputs_root` override — the plain zero-config default). New `persist --run-dir <dir> [--session-id <id>]` subcommand calls `persist_run` directly.
+
+**Tests (`tests/test_persistence.py`, 26 new; `tests/test_api.py`, +4; total 116):**
+- `LocalJsonBackend`: every method, version incrementing, `created_at` preserved across a session update, `get_twin` returning `None` then the latest payload, `list_sessions` ignoring run directories that were never persisted.
+- `SupabaseBackend` against `FakeSupabaseClient` — a minimal in-memory stand-in for the exact `.table().select/insert/upsert/eq/order/limit().execute()` chain `SupabaseBackend` uses, with **no network access anywhere in the test suite**: upsert-not-insert on repeated `save_session`, version incrementing (and correctly *independent per session*), bulk-insert for measurements/processing_status, empty-list no-op, `list_sessions`, `get_twin`.
+- `get_backend()`: defaults to `LocalJsonBackend` with no env vars; **directly asserts `"visionforge.persistence.supabase_backend" not in sys.modules`** after such a call, proving `supabase-py` is genuinely never imported when not selected (not just "the code path isn't hit" — the actual module table is checked); selects `SupabaseBackend` when both env vars are set (with `create_client` monkeypatched to avoid any real network call); falls back to local when only one of the two is set.
+- `persist_run()`: end-to-end against both a real `LocalJsonBackend` (writing to `tmp_path`) and a fake-client `SupabaseBackend`, on a hand-built run directory — confirms a `None` height (no ceiling/walls in the fixture) is correctly *excluded* from persisted measurements rather than saved as a fabricated `0`.
+- `test_api.py` additions: `POST /persist` end-to-end; `GET /twin` falling back to the persisted copy once the local run directory's discovery marker is removed; 404 when neither exists; `GET /sessions` surfacing a persisted-only entry (`run_dir: null`) once the local copy is gone.
+- `pytest tests/`: 116/116 green.
+
+**New `docs/supabase.md`:** env var setup, migration command (`supabase db push`, or paste into the SQL editor), the full "what is stored" table, an explicit "what is never stored" list (frames, PLY point data, per-plane PLYs, per-frame poses as their own table), and how the API/CLI entry points are used.
+
+**Real-data verification:** ran `visionforge persist --run-dir outputs/final_demo` against the real synthetic-clip run (no env vars set, so `LocalJsonBackend`) — produced real files: `session.json` (`input_type: synthetic`, `video_name: data\input\synthetic_box_room.mp4`, `status: success`), `room_models/v1.json`, `scene_graphs/v1.json`, `twins/v1.json`, `measurements.json` (4 real rows — `length: 20.57`, `width: 8.54`, `height: 6.56` with `method: wall_extent_estimate`, `floor_area: 175.70`), `processing_status.json` (all 5 stages `success`). Also called `POST /sessions/final_demo/persist` through `TestClient(create_app(outputs_root="outputs"))` against the same real session and got the same result via the API path.
+
+**Supabase MCP / real round-trip: not available.** `ToolSearch("supabase")` found no Supabase MCP tools configured in this environment, so the migration was never applied to a real Supabase project and no real network round-trip was performed — `SupabaseBackend` is verified only against `FakeSupabaseClient` (see above) and by code review against the actual `supabase-py` 2.31.0 API (`create_client` signature and the postgrest query-builder chain were checked directly against the installed package, not assumed). This is stated explicitly per instructions, rather than claiming a round-trip that didn't happen. If a Supabase project becomes available later: `supabase db push` (or paste `0001_init.sql`), set `SUPABASE_URL`/`SUPABASE_KEY`, then `visionforge persist --run-dir outputs/final_demo` should be the first real round-trip to try.

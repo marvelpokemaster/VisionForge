@@ -248,3 +248,48 @@ def test_cors_origins_configurable_via_env_var(tmp_path, run_dir, monkeypatch):
     # The default Vite origin is no longer allowed once the env var overrides it.
     resp2 = client.get("/sessions", headers={"Origin": "http://localhost:5173"})
     assert "access-control-allow-origin" not in resp2.headers
+
+
+def test_persist_session_saves_through_backend(client):
+    resp = client.post("/sessions/final_demo/persist")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["session_id"] == "final_demo"
+    assert "room_model" in data["saved"]
+    assert "scene_graph" in data["saved"]
+    assert "twin" in data["saved"]
+    assert "measurements" in data["saved"]
+    assert "processing_status" in data["saved"]
+
+
+def test_twin_falls_back_to_persisted_copy_when_run_dir_gone(client, run_dir):
+    persist_resp = client.post("/sessions/final_demo/persist")
+    assert persist_resp.status_code == 200
+
+    # Remove what SessionStore uses for local auto-discovery -- but the
+    # persisted copy (written under the same outputs_root by LocalJsonBackend)
+    # survives, since it lives in a separate persistence/ subtree.
+    (run_dir / "p2" / "room_model.json").unlink()
+
+    resp = client.get("/sessions/final_demo/twin")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["room_model"] is not None
+
+
+def test_twin_404_when_neither_run_dir_nor_persisted_copy_exist(client):
+    resp = client.get("/sessions/never-existed/twin")
+    assert resp.status_code == 404
+
+
+def test_list_sessions_includes_persisted_only_session_when_local_run_dir_gone(client, run_dir):
+    client.post("/sessions/final_demo/persist")
+    (run_dir / "p2" / "room_model.json").unlink()
+
+    resp = client.get("/sessions")
+    assert resp.status_code == 200
+    sessions = resp.json()
+    entry = next((s for s in sessions if s["id"] == "final_demo"), None)
+    assert entry is not None
+    assert entry["run_dir"] is None
+    assert entry["provenance"]["input_type"] == "synthetic"

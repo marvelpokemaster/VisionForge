@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from visionforge.twin.digital_twin import DigitalTwin
 from visionforge.spatial.queries import SpatialQueryEngine
 from visionforge.api.store import SessionStore
+from visionforge.persistence import get_backend, persist_run
 
 # Vite's default dev server origin. Override with a comma-separated list via
 # VISIONFORGE_CORS_ORIGINS for a different frontend dev port/host.
@@ -51,9 +52,11 @@ def _validate_id_component(value: str, what: str) -> None:
 def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
     root = Path(outputs_root) if outputs_root is not None else Path(os.environ.get("VISIONFORGE_OUTPUTS_ROOT", "outputs"))
     store = SessionStore(root)
+    backend = get_backend(outputs_root=root)
 
     app = FastAPI(title="VisionForge API", description="Read-only digital twin API, backed by outputs/<run>/ (see Task G for Supabase persistence).")
     app.state.store = store
+    app.state.backend = backend
 
     cors_origins = [
         o.strip() for o in os.environ.get("VISIONFORGE_CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",") if o.strip()
@@ -87,9 +90,36 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
         twin = DigitalTwin.build_from_run_dir(run_dir)
         return {"id": session_id, "run_dir": str(run_dir), "provenance": twin.provenance}
 
+    def _persisted_only_summary(record: Dict[str, Any]) -> Dict[str, Any]:
+        """A session known to the backend (e.g. Supabase) but with no local
+        run directory -- a reduced provenance, since there's no room_model/
+        scene_graph on disk to derive the rest from."""
+        return {
+            "id": record["id"],
+            "run_dir": None,
+            "provenance": {
+                "run_dir": None,
+                "source_files": {"room_model": None, "cameras": None, "scene_graph": None, "sparse_cloud": None},
+                "stage_status": {},
+                "input_type": record.get("input_type", "unknown"),
+                "scale": {"metric_available": False, "scale_factor": 1.0},
+                "measurement_methods": {
+                    "length_method": None, "width_method": None, "height_method": None, "floor_area_method": None
+                }
+            }
+        }
+
     @app.get("/sessions")
     def list_sessions():
-        return [_session_summary(sid, run_dir) for sid, run_dir in store.list_sessions().items()]
+        merged = {sid: _session_summary(sid, run_dir) for sid, run_dir in store.list_sessions().items()}
+        # When the backend is Supabase, this also surfaces sessions with no
+        # local run directory at all -- for LocalJsonBackend it's typically
+        # a subset of what's already discovered above, deduplicated by id.
+        for record in backend.list_sessions():
+            sid = record["id"]
+            if sid not in merged:
+                merged[sid] = _persisted_only_summary(record)
+        return list(merged.values())
 
     @app.post("/sessions", status_code=201)
     def create_session(req: CreateSessionRequest):
@@ -121,8 +151,18 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
 
     @app.get("/sessions/{session_id}/twin")
     def get_twin(session_id: str):
+        run_dir = store.get(session_id)
+        if run_dir is not None and run_dir.exists():
+            return DigitalTwin.build_from_run_dir(run_dir).to_dict()
+        persisted = backend.get_twin(session_id)
+        if persisted is not None:
+            return persisted
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found (no run directory, nothing persisted)")
+
+    @app.post("/sessions/{session_id}/persist")
+    def persist_session(session_id: str):
         run_dir = _run_dir_or_404(session_id)
-        return DigitalTwin.build_from_run_dir(run_dir).to_dict()
+        return persist_run(backend, session_id, run_dir)
 
     @app.get("/sessions/{session_id}/measurements")
     def get_measurements(session_id: str):

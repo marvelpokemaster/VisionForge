@@ -7,6 +7,7 @@ from visionforge.spatial.scene_graph import build_scene_graph, save_scene_graph
 from visionforge.spatial.queries import SpatialQueryEngine
 from visionforge.spatial.viewer import create_digital_twin, launch_viewer
 from visionforge.twin.digital_twin import DigitalTwin
+from visionforge.persistence import get_backend, persist_run
 
 
 def _run_stage(cmd, description):
@@ -142,6 +143,12 @@ def cmd_reconstruct(args):
     _build_and_save_twin(out_dir, status)
     print(f"Digital twin saved to {out_dir / 'twin.json'}")
 
+    if args.persist:
+        print("Persisting session...")
+        backend = get_backend()
+        summary = persist_run(backend, out_dir.name, out_dir)
+        print(f"Persisted: {', '.join(summary['saved'])}")
+
     print("\nOffline construction complete.")
 
     if not args.no_viewer:
@@ -168,6 +175,18 @@ def cmd_twin_build(args):
     print(json.dumps(twin.provenance, indent=2))
 
 
+def cmd_persist(args):
+    run_dir = Path(args.run_dir)
+    if not run_dir.exists():
+        print(f"Error: run directory {run_dir} not found.")
+        sys.exit(1)
+
+    session_id = args.session_id or run_dir.name
+    backend = get_backend()
+    summary = persist_run(backend, session_id, run_dir)
+    print(f"Persisted session '{session_id}': {', '.join(summary['saved'])}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="VisionForge CLI")
     subparsers = parser.add_subparsers(dest="command")
@@ -180,6 +199,10 @@ def main():
     rec_parser.add_argument("--input-type", choices=["synthetic", "real"], default=None,
                              help="Whether --video is a synthetic rendered clip or real (physical-camera) footage; "
                                   "recorded in run_status.json / twin.json provenance. Defaults to 'unknown' if omitted.")
+    rec_parser.add_argument("--persist", action="store_true",
+                             help="Also persist the session (room model, scene graph, twin, measurements, "
+                                  "processing status) through the configured PersistenceBackend "
+                                  "(Supabase if SUPABASE_URL/SUPABASE_KEY are set, else outputs/ JSON).")
 
     # Live command
     live_parser = subparsers.add_parser("live", help="Run the live camera digital twin mode")
@@ -189,6 +212,11 @@ def main():
     twin_subparsers = twin_parser.add_subparsers(dest="twin_command")
     twin_build_parser = twin_subparsers.add_parser("build", help="Build/rebuild twin.json from an existing run directory")
     twin_build_parser.add_argument("--run-dir", required=True, help="Run directory produced by `visionforge reconstruct`")
+
+    # Persist command
+    persist_parser = subparsers.add_parser("persist", help="Persist an existing run directory through the configured PersistenceBackend")
+    persist_parser.add_argument("--run-dir", required=True, help="Run directory produced by `visionforge reconstruct`")
+    persist_parser.add_argument("--session-id", default=None, help="Session id to persist under (defaults to the run directory's name)")
 
     args = parser.parse_args()
 
@@ -201,6 +229,8 @@ def main():
             cmd_twin_build(args)
         else:
             twin_parser.print_help()
+    elif args.command == "persist":
+        cmd_persist(args)
     else:
         parser.print_help()
 
