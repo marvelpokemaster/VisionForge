@@ -48,8 +48,8 @@ The current architecture is a purely Python-based offline and live-tracking pipe
 - **Verification:** Unit tested via synthetic translating 2D images. No real-world video has been reconstructed.
 
 ### P2 — Spatial Reconstruction / Room Understanding
-- **Implemented:** Open3D voxel downsampling, statistical outlier removal, iterative RANSAC plane segmentation, geometric classification (floor/wall/ceiling), and scaled room dimension calculation.
-- **Verification:** Tested on a synthetic 3D point cloud of a box room. Successfully generated planes and room measurements.
+- **Implemented:** Open3D voxel downsampling, statistical outlier removal, iterative RANSAC plane segmentation, coplanar-segment merging, geometric classification (floor/wall/ceiling), scaled room dimension calculation, and (Task A) per-plane boundary polygons/extent/area/PLY export, plane-plane intersection lines, room-frame coordinates, and the room's bounding polygon.
+- **Verification:** Tested on a synthetic 3D point cloud of a box room (`tests/test_geometry.py`, 9 tests) and on the real reconstructed room video (`data/input/room.mp4`).
 
 ### P3 — Spatial Intelligence
 - **Implemented:** Scene graph generation from P2 JSON (`contains`, `adjacent_to`, `parallel_to`, `perpendicular_to`), and a spatial query engine (area, dimensions, fit checking).
@@ -102,10 +102,11 @@ Based on the repository, these commands currently function:
 | Android Integration | None | Untested | No Android code exists | PLANNED |
 
 ## 8. Generated Outputs / Artifacts
-- `sparse_cloud.ply`: The 3D point cloud output from P1. Currently, the artifacts in `outputs/` were generated synthetically because no real video was processed.
-- `room_model.json`: Contains the equation, normal, centroid, and bounding dimensions of detected geometric planes.
+- `sparse_cloud.ply` / `cameras.json`: Real P1 outputs, produced from an actual (rendered, not fabricated) textured video with genuine camera translation — see §16.
+- `room_model.json`: Per plane: `equation`, `normal`, `centroid` (reconstruction frame) + `centroid_room` (room frame), `support`, `in_plane_axes`, `extent` (width/height), `area` (convex-hull polygon area), `boundary`/`boundary_room` (convex-hull polygon vertices in each frame), `ply_path` (that plane's own inlier cloud). Top-level `intersections`: perpendicular plane pairs whose extents overlap, as a clipped 3D segment in both frames. `room.bounding_polygon_room`: the room's footprint outline. See §17-18 for the merge fix and Task A.
+- `p2/planes/<plane_id>.ply`: Each plane's own inlier point cloud, exported individually.
 - `scene_graph.json`: Nodes and edges representing semantic relationships (e.g., floor is perpendicular to wall).
-- `statistics.json`: Contains retention ratios, plane counts, and processing times.
+- `statistics.json`: Contains retention ratios, plane counts, resolved scale-relative thresholds, and processing times.
 
 ## 9. Known Problems / Limitations
 - **No Real Video Verification:** The pipeline has strictly been tested on synthetic data. Real-world motion blur, textureless walls, and sensor noise are untested.
@@ -189,3 +190,20 @@ The next major architectural phase is the Android client:
 - After (merge active, same cloud, same threshold): 3 planes — `plane_000 floor support=1049` (merged; not exactly 976+75 because Open3D's `segment_plane` RANSAC is itself randomized and reran from scratch, but confirms the merge collapses the split), `plane_001 wall support=93`, `plane_002 unknown support=80`.
 
 Separately, re-running the full `visionforge reconstruct` end-to-end on `data/input/room.mp4` with the new scale-relative defaults (bbox diagonal 32.78 → voxel_size≈0.164, plane_distance_threshold≈0.328, vs. the old fixed 0.05) avoids the fragmentation at the RANSAC stage itself: `{floor: 1, wall: 2, ceiling: 0, unknown: 0}`, 3 planes total, no duplicates. `pytest tests/` remained green throughout.
+
+## 18. Session Log — 2026-09-21 (cont.): Task A — room geometry model
+
+**`src/visionforge/geometry/room_model.py`** (extended, per the task's chosen location; `plane_fitting.py`'s RANSAC/classification logic untouched):
+- `_in_plane_axes(normal, up_axis, x_axis)`: orthonormal in-plane basis `(axis_u, axis_v)` per plane. `axis_v` is `up_axis` projected onto the plane (a wall's true vertical direction); for near-horizontal planes where that degenerates (floor/ceiling, `up_axis` ~parallel to `normal`), falls back to projecting the room's `x_axis` instead. `axis_u = normal × axis_v`.
+- `_convex_hull_2d` / `_polygon_area_2d`: Andrew's monotone-chain hull and shoelace area, written from scratch — `requirements.txt` has no scipy, and this is plain classical geometry.
+- `_plane_boundary`: projects a plane's inlier cloud onto `(axis_u, axis_v)`, takes the 2D convex hull, lifts it back to 3D — the plane's oriented boundary polygon.
+- Per plane, new fields: `in_plane_axes`, `extent` (`{width, height}` = the hull's axis-aligned bbox in the plane's own 2D frame), `area` (true hull polygon area, not the bbox product), `boundary` (reconstruction frame) / `boundary_room` (room frame), `centroid_room`, `ply_path`.
+- `_plane_intersection`: for pairs whose normals are near-perpendicular (`|dot| < 0.25`, matching the existing convention elsewhere in the codebase), solves for the 3D line of intersection, then clips it to the overlap of both planes' boundary extents projected onto the line direction. Returns `None` (no fabricated intersection) if the planes aren't perpendicular, are degenerate, or the extents don't actually overlap. Exposed at the top level as `room_model["intersections"]`, each with `point`/`direction`/`segment` (reconstruction frame) and `point_room`/`segment_room` (room frame).
+- `_room_origin`: the largest detected floor's centroid, or the mean of all plane centroids if no floor was found — just a reference point for the room-frame transform, not a measurement.
+- `room["bounding_polygon_room"]`: convex hull of every plane's inliers projected onto the room's horizontal `(x_axis, z_axis)` plane — the room's footprint outline, scaled by `scale_factor` like its sibling `room` fields.
+- `export_plane_plys(planes, output_dir)`: writes each (post-merge) plane's inlier cloud to `planes/<plane_id>.ply` and returns the id→path map, which `align_and_measure_room` embeds as each plane's `ply_path`. Wired into `geometry/pipeline.py` between plane extraction/merge and `align_and_measure_room`.
+- **Units:** per-plane geometry (`boundary`, `extent`, `area`, `centroid`, `intersections`) stays in raw, unscaled reconstruction-frame units, consistent with the pre-existing (also unscaled) `equation`/`normal`/`centroid` fields. Only the top-level `room` summary (`length`/`width`/`height`/`floor_area`/`bounding_polygon_room`) applies `scale_factor`, exactly as it already did — `scale.metric_available` stays honest either way.
+
+**Tests added (`tests/test_geometry.py`):** `test_room_model_geometry_extension`, on the existing synthetic 5×5×2.5 box-room fixture — asserts the floor's extent is ~5×5 and its hull area ~20-25 (a real hull is slightly smaller than the bbox product), a wall's extent is ~5×2.5, every plane's `ply_path` points at a real file on disk, at least one real floor↔wall intersection exists as a proper 3D segment in both frames, and the room's bounding polygon spans ~5×5. `pytest tests/`: 9/9 green.
+
+**Real-data run** (`data/input/room.mp4` → `visionforge reconstruct`): 3 planes (`floor:1, wall:2`). Floor `extent = {width: 8.54, height: 20.59}` — matches `room.length`/`room.width` from the pre-existing measurement method exactly, a useful cross-check; hull `area = 171.2` vs. bbox product `175.86` (hull is honestly smaller, as expected for a non-rectangular real boundary). Both floor↔wall pairs produced real intersection segments, each with `segment_room` y-coordinate ≈ 0 at both endpoints — correct, since the intersection of a wall with the floor must lie on the floor, and the room-frame origin is the floor's own centroid. Each plane's PLY was verified to exist on disk with the exact point count matching `support`.

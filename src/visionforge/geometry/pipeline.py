@@ -8,7 +8,7 @@ from pathlib import Path
 
 from visionforge.geometry.point_cloud import process_point_cloud
 from visionforge.geometry.plane_fitting import extract_dominant_planes, classify_planes, merge_coplanar_planes
-from visionforge.geometry.room_model import align_and_measure_room
+from visionforge.geometry.room_model import align_and_measure_room, export_plane_plys
 
 VOXEL_SIZE_FRACTION = 0.005   # 0.5% of the raw cloud's bounding-box diagonal
 PLANE_THRESHOLD_FRACTION = 0.01  # 1% of the raw cloud's bounding-box diagonal
@@ -129,11 +129,15 @@ def main():
         
     print(f"Classifications: {c_counts}")
     
+    print("Exporting per-plane point clouds...")
+    ply_paths = export_plane_plys(planes_data["planes"], output_dir)
+
     print("Measuring room and exporting model...")
     room_model = align_and_measure_room(
-        planes_data, 
-        ref_distance=args.reference_distance, 
-        rec_distance=args.reference_reconstruction_distance
+        planes_data,
+        ref_distance=args.reference_distance,
+        rec_distance=args.reference_reconstruction_distance,
+        ply_paths=ply_paths
     )
     
     with open(output_dir / "room_model.json", "w") as f:

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from visionforge.geometry.point_cloud import process_point_cloud
 from visionforge.geometry.plane_fitting import extract_dominant_planes, classify_planes, merge_coplanar_planes
-from visionforge.geometry.room_model import align_and_measure_room
+from visionforge.geometry.room_model import align_and_measure_room, export_plane_plys
 
 
 def _make_plane_dict(plane_id, points, normal, d, total_points):
@@ -155,3 +155,63 @@ def test_merge_coplanar_planes_keeps_distinct_parallel_planes_separate():
 
     assert len(merged) == 2
     assert {p["inliers"] for p in merged} == {40, 40}
+
+
+def test_room_model_geometry_extension(synthetic_room_pcd, tmp_path):
+    """Task A: boundary polygon, extent, area, per-plane PLY, intersection
+    lines and the room bounding polygon, on the synthetic box-room cloud."""
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    pcd_clean, _ = process_point_cloud(synthetic_room_pcd, output_dir, voxel_size=0.1)
+    all_points = np.asarray(pcd_clean.points)
+
+    planes = extract_dominant_planes(pcd_clean, distance_threshold=0.1, min_ratio=0.1, max_planes=5)
+    planes = merge_coplanar_planes(planes, distance_threshold=0.1)
+    planes_data = classify_planes(planes, all_points)
+
+    ply_paths = export_plane_plys(planes_data["planes"], output_dir)
+    model = align_and_measure_room(planes_data, ref_distance=5.0, rec_distance=5.0, ply_paths=ply_paths)
+
+    assert len(model["planes"]) >= 4
+
+    floors = [p for p in model["planes"] if p["type"] == "floor"]
+    walls = [p for p in model["planes"] if p["type"] == "wall"]
+    assert floors and walls
+
+    # Floor is ~5x5: both extent axes should be close to 5, and hull area close to 25.
+    floor = floors[0]
+    assert 4.0 < floor["extent"]["width"] < 6.0
+    assert 4.0 < floor["extent"]["height"] < 6.0
+    assert 15.0 < floor["area"] < 30.0
+    assert len(floor["boundary"]) >= 3
+    assert len(floor["boundary_room"]) == len(floor["boundary"])
+    assert len(floor["centroid_room"]) == 3
+
+    # A wall is ~5 x 2.5: one extent axis near 5, the other near 2.5.
+    wall = walls[0]
+    dims = sorted([wall["extent"]["width"], wall["extent"]["height"]])
+    assert 1.5 < dims[0] < 3.5
+    assert 4.0 < dims[1] < 6.0
+
+    # Every plane got its own PLY, written to disk.
+    for p in model["planes"]:
+        assert p["ply_path"] is not None
+        assert (output_dir / p["ply_path"]).exists()
+
+    # Floor/wall pairs are perpendicular with overlapping extents -> at least
+    # one real intersection line, each a proper 3D segment.
+    assert len(model["intersections"]) > 0
+    for inter in model["intersections"]:
+        assert len(inter["segment"]) == 2
+        assert len(inter["segment"][0]) == 3
+        assert len(inter["segment_room"]) == 2
+
+    # Room bounding polygon: footprint outline in room-frame (x, z), roughly 5x5.
+    poly = model["room"]["bounding_polygon_room"]
+    assert len(poly) >= 3
+    poly_arr = np.array(poly)
+    span_x = poly_arr[:, 0].max() - poly_arr[:, 0].min()
+    span_z = poly_arr[:, 1].max() - poly_arr[:, 1].min()
+    assert 3.5 < span_x < 6.5
+    assert 3.5 < span_z < 6.5
