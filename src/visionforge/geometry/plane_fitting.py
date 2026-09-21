@@ -50,8 +50,65 @@ def extract_dominant_planes(
         })
         
         remaining_pcd = remaining_pcd.select_by_index(inliers, invert=True)
-        
+
     return planes
+
+def merge_coplanar_planes(
+    planes: List[Dict[str, Any]],
+    distance_threshold: float,
+    normal_dot_threshold: float = 0.98,
+    offset_factor: float = 2.0
+) -> List[Dict[str, Any]]:
+    """Merge RANSAC plane segments that are really the same physical surface
+    split by noise/thresholding: normals agree (|dot| > normal_dot_threshold)
+    and plane offsets differ by less than offset_factor * distance_threshold.
+    Support counts are summed, inlier clouds concatenated, centroid recomputed.
+    The surviving equation/normal/id are taken from the larger (base) segment.
+    """
+    used = [False] * len(planes)
+    merged = []
+
+    for i in range(len(planes)):
+        if used[i]:
+            continue
+        used[i] = True
+
+        base = dict(planes[i])
+        base_normal = np.array(base["normal"])
+        base_d = base["equation"][3]
+        combined_cloud = base["cloud"]
+        combined_inliers = base["inliers"]
+        combined_ratio = base.get("inlier_ratio", 0.0)
+
+        for j in range(i + 1, len(planes)):
+            if used[j]:
+                continue
+
+            other = planes[j]
+            other_normal = np.array(other["normal"])
+            other_d = other["equation"][3]
+
+            dot = float(np.dot(base_normal, other_normal))
+            if abs(dot) <= normal_dot_threshold:
+                continue
+
+            # normalize sign so offsets are comparable regardless of normal direction
+            other_d_aligned = other_d if dot > 0 else -other_d
+            if abs(base_d - other_d_aligned) >= offset_factor * distance_threshold:
+                continue
+
+            used[j] = True
+            combined_cloud = combined_cloud + other["cloud"]
+            combined_inliers += other["inliers"]
+            combined_ratio += other.get("inlier_ratio", 0.0)
+
+        base["cloud"] = combined_cloud
+        base["inliers"] = combined_inliers
+        base["inlier_ratio"] = combined_ratio
+        base["centroid"] = combined_cloud.get_center().tolist()
+        merged.append(base)
+
+    return merged
 
 def classify_planes(planes: List[Dict[str, Any]], all_points: np.ndarray) -> Dict[str, Any]:
     if not planes:

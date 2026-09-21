@@ -4,8 +4,22 @@ import open3d as o3d
 from pathlib import Path
 
 from visionforge.geometry.point_cloud import process_point_cloud
-from visionforge.geometry.plane_fitting import extract_dominant_planes, classify_planes
+from visionforge.geometry.plane_fitting import extract_dominant_planes, classify_planes, merge_coplanar_planes
 from visionforge.geometry.room_model import align_and_measure_room
+
+
+def _make_plane_dict(plane_id, points, normal, d, total_points):
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+    return {
+        "id": plane_id,
+        "equation": [normal[0], normal[1], normal[2], d],
+        "normal": list(normal),
+        "inliers": len(points),
+        "inlier_ratio": len(points) / total_points,
+        "centroid": points.mean(axis=0).tolist(),
+        "cloud": pcd,
+    }
 
 @pytest.fixture
 def synthetic_room_pcd(tmp_path):
@@ -84,3 +98,60 @@ def test_geometry_pipeline(synthetic_room_pcd, tmp_path):
     
     # Area should be approx 25
     assert 20.0 < model["room"]["floor_area"] < 30.0
+
+
+def test_merge_coplanar_planes_merges_split_wall():
+    rng = np.random.default_rng(42)
+
+    # Two segments of the same physical surface (same normal, offsets 0.001 apart)
+    # -- the kind of split RANSAC produces when a real plane gets segmented twice.
+    pts_a = np.column_stack([
+        rng.uniform(0, 2, 50), rng.uniform(0, 2, 50), np.zeros(50)
+    ])
+    pts_b = np.column_stack([
+        rng.uniform(2, 4, 50), rng.uniform(0, 2, 50), np.full(50, 0.001)
+    ])
+    # A genuinely different, perpendicular plane that must NOT be merged.
+    pts_c = np.column_stack([
+        np.zeros(30), rng.uniform(0, 2, 30), rng.uniform(0, 2, 30)
+    ])
+
+    plane_a = _make_plane_dict("plane_000", pts_a, (0, 0, 1), 0.0, 130)
+    plane_b = _make_plane_dict("plane_001", pts_b, (0, 0, 1), -0.001, 130)
+    plane_c = _make_plane_dict("plane_002", pts_c, (1, 0, 0), 0.0, 130)
+
+    merged = merge_coplanar_planes([plane_a, plane_b, plane_c], distance_threshold=0.01)
+
+    assert len(merged) == 2
+    by_inliers = {p["inliers"]: p for p in merged}
+
+    assert 100 in by_inliers  # a + b merged
+    assert 30 in by_inliers   # c untouched
+
+    ab = by_inliers[100]
+    expected_centroid = np.vstack([pts_a, pts_b]).mean(axis=0)
+    np.testing.assert_allclose(ab["centroid"], expected_centroid, atol=1e-6)
+    assert len(np.asarray(ab["cloud"].points)) == 100
+
+    c = by_inliers[30]
+    assert len(np.asarray(c["cloud"].points)) == 30
+
+
+def test_merge_coplanar_planes_keeps_distinct_parallel_planes_separate():
+    rng = np.random.default_rng(7)
+
+    # Floor and ceiling: same normal, but offset far beyond the merge tolerance.
+    pts_floor = np.column_stack([
+        rng.uniform(0, 2, 40), rng.uniform(0, 2, 40), np.zeros(40)
+    ])
+    pts_ceiling = np.column_stack([
+        rng.uniform(0, 2, 40), rng.uniform(0, 2, 40), np.full(40, 2.5)
+    ])
+
+    floor = _make_plane_dict("plane_000", pts_floor, (0, 0, 1), 0.0, 80)
+    ceiling = _make_plane_dict("plane_001", pts_ceiling, (0, 0, 1), -2.5, 80)
+
+    merged = merge_coplanar_planes([floor, ceiling], distance_threshold=0.01)
+
+    assert len(merged) == 2
+    assert {p["inliers"] for p in merged} == {40, 40}
