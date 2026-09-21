@@ -41,19 +41,19 @@ The current architecture is a purely Python-based offline and live-tracking pipe
 
 ### P0 — Video Ingestion
 - **Implemented:** Frame extraction, keyframe selection via variance of Laplacian (sharpness), metadata extraction, contact sheet generation.
-- **Verification:** Tested via automated tests on synthetic/dummy video frames. No real indoor video has been run through it.
+- **Verification:** Tested via automated tests on synthetic/dummy video frames, and on a synthetic rendered room video (`data/input/synthetic_box_room.mp4`). No physical-camera video has been run through it yet.
 
 ### P1 — Vision Core / Reconstruction
 - **Implemented:** SIFT feature extraction, FLANN matching, ratio test, epipolar filtering (Fundamental matrix), and incremental SfM via PyCOLMAP.
-- **Verification:** Unit tested via synthetic translating 2D images. No real-world video has been reconstructed.
+- **Verification:** Unit tested via synthetic translating 2D images, and end-to-end on the synthetic rendered room video (`data/input/synthetic_box_room.mp4`, 24 cameras registered, 1700+ points triangulated). No physical-camera video has been reconstructed yet.
 
 ### P2 — Spatial Reconstruction / Room Understanding
 - **Implemented:** Open3D voxel downsampling, statistical outlier removal, iterative RANSAC plane segmentation, coplanar-segment merging, geometric classification (floor/wall/ceiling), scaled room dimension calculation, and (Task A) per-plane boundary polygons/extent/area/PLY export, plane-plane intersection lines, room-frame coordinates, and the room's bounding polygon.
-- **Verification:** Tested on a synthetic 3D point cloud of a box room (`tests/test_geometry.py`, 9 tests) and on the real reconstructed room video (`data/input/room.mp4`).
+- **Verification:** Tested on a synthetic 3D point cloud of a box room (`tests/test_geometry.py`, 9 tests) and on the synthetic rendered room video (`data/input/synthetic_box_room.mp4`).
 
 ### P3 — Spatial Intelligence
 - **Implemented:** Scene graph generation from P2 JSON: `contains`, `parallel_to`/`perpendicular_to` (with `angle_deg`), boundary-distance-based `adjacent_to`, `intersects` (reusing Task A's segments), `above`/`below` (room-frame height), `inside` (camera-vs-room-polygon), plus camera nodes (hand-written quaternion math) and a trajectory node. `SpatialQueryEngine` (Task C): indexed lookups, unit-aware measurements (`{value, metric, units}` or `None`), wall area from Task A's hull area, surface/camera distance queries with boundary-containment flags, and a regex question dispatcher.
-- **Verification:** `tests/test_spatial.py` (51 tests) — hand-built box room with known answers for every relation and every query method, hand-built-pose tests for the quaternion conversion, and dispatcher tests (4 questions × 3 phrasings + 1 unsupported). Also verified on the real `data/input/room.mp4` reconstruction (see §19-20).
+- **Verification:** `tests/test_spatial.py` (51 tests) — hand-built box room with known answers for every relation and every query method, hand-built-pose tests for the quaternion conversion, and dispatcher tests (4 questions × 3 phrasings + 1 unsupported). Also verified on the synthetic rendered room's reconstruction from `data/input/synthetic_box_room.mp4` (see §19-20).
 
 ### P4 — Real-Time / Android Digital Twin
 - **Implemented:** A lightweight live camera tracker (`tracker.py`) using KLT optical flow + Essential Matrix pose recovery + linear triangulation, and an Open3D standalone viewer.
@@ -98,18 +98,19 @@ Based on the repository, these commands currently function:
 | P3 Scene Graph | Manual Script | Pass | Terminal output logs | Verified (Synthetic) |
 | P4 Offline Viewer | CLI dry run | Pass | Open3D window generation | Partially Verified |
 | P4 Live Tracker | None | Untested | No physical webcam test | UNVERIFIED |
-| End-to-End Real Video | None | Untested | No `room.mp4` provided yet | UNVERIFIED |
+| End-to-End Synthetic Video | Full pipeline run | Pass | `data/input/synthetic_box_room.mp4` (rendered, not physical-camera footage) — see §16-20 | Verified (Synthetic) |
+| End-to-End Physical-Camera Video | None | Untested | No physical-camera video has been provided yet | UNVERIFIED |
 | Android Integration | None | Untested | No Android code exists | PLANNED |
 
 ## 8. Generated Outputs / Artifacts
-- `sparse_cloud.ply` / `cameras.json`: Real P1 outputs, produced from an actual (rendered, not fabricated) textured video with genuine camera translation — see §16.
+- `sparse_cloud.ply` / `cameras.json`: Genuine (non-fabricated) P1 outputs, produced from a synthetic rendered textured video (not physical-camera footage) with genuine camera translation — see §16.
 - `room_model.json`: Per plane: `equation`, `normal`, `centroid` (reconstruction frame) + `centroid_room` (room frame), `support`, `in_plane_axes`, `extent` (width/height), `area` (convex-hull polygon area), `boundary`/`boundary_room` (convex-hull polygon vertices in each frame), `ply_path` (that plane's own inlier cloud). Top-level `intersections`: perpendicular plane pairs whose extents overlap, as a clipped 3D segment in both frames. `room.bounding_polygon_room`: the room's footprint outline. See §17-18 for the merge fix and Task A.
 - `p2/planes/<plane_id>.ply`: Each plane's own inlier point cloud, exported individually.
 - `scene_graph.json`: Nodes and edges representing semantic relationships (e.g., floor is perpendicular to wall).
 - `statistics.json`: Contains retention ratios, plane counts, resolved scale-relative thresholds, and processing times.
 
 ## 9. Known Problems / Limitations
-- **No Real Video Verification:** The pipeline has strictly been tested on synthetic data. Real-world motion blur, textureless walls, and sensor noise are untested.
+- **No Physical-Camera Video Verification:** The pipeline has strictly been tested on synthetic data — a hand-built synthetic point cloud, and a synthetic rendered video (`data/input/synthetic_box_room.mp4`). No physical-camera video has been run through it yet. Real-world motion blur, textureless walls, and sensor noise are untested.
 - **Scale Ambiguity & Drift:** Monocular reconstruction (P1) lacks absolute scale. The live VO tracker (P4) will experience severe scale drift over time without global bundle adjustment.
 - **Manhattan-World Assumption:** P2 geometry classification strictly assumes orthogonal vertical walls and flat horizontal floors.
 - **No Android Support:** The "Iron Man" vision relies on Android, but the current codebase only supports desktop webcam access via `cv2.VideoCapture(0)`.
@@ -125,8 +126,8 @@ Based on the repository, these commands currently function:
 - **Intended Boundary:** Supabase SHOULD be used for persisting project state, saving JSON scene graphs, storing room measurements, and handling asynchronous sync. It MUST NOT be used for streaming raw camera frames, high-frequency CV processing, or frame-by-frame Android tracking round-trips.
 
 ## 12. Immediate Next Objective
-The immediate next objective is **REAL-WORLD VERIFICATION**.
-Before building the Android mobile app, the existing P0-P4 Python pipeline MUST be successfully executed against a real, physical indoor smartphone video (`room.mp4`) to validate the classical CV pipeline's robustness against real-world sensor noise and motion.
+The immediate next objective is **PHYSICAL-CAMERA VERIFICATION**.
+The pipeline has now been validated end-to-end on a synthetic rendered clip (`data/input/synthetic_box_room.mp4`, see §16-20) — but that is a rendered video, not physical-camera footage. Before building the Android mobile app, the existing P0-P4 Python pipeline MUST also be successfully executed against a real, physical indoor smartphone video to validate the classical CV pipeline's robustness against real-world sensor noise and motion.
 
 ## 13. Android / Real-Time Requirements
 The next major architectural phase is the Android client:
@@ -149,9 +150,9 @@ The next major architectural phase is the Android client:
 9. Keep the offline pipeline reproducible.
 
 ## 15. Recommended Next Task
-**NEXT AI TASK:** Execute the unified offline pipeline (`visionforge reconstruct`) against a real indoor smartphone video (`data/input/room.mp4`), document the actual failure points/successes, and fix any immediate classical CV pipeline crashes before beginning Android integration.
+**DONE (see §16):** Execute the unified offline pipeline (`visionforge reconstruct`) end-to-end and fix any immediate classical CV pipeline crashes — completed against a synthetic rendered clip (`data/input/synthetic_box_room.mp4`), not physical-camera footage. **STILL OUTSTANDING:** run the same pipeline against a real, physical-camera indoor smartphone video before beginning Android integration (see §12).
 
-## 16. Session Log — 2026-09-21: CLI pipeline fix + real-artifact verification
+## 16. Session Log — 2026-09-21: CLI pipeline fix + synthetic-clip verification
 
 **Scope:** Pre-Task-A preparation for the Spatial Intelligence + Digital Twin chain (Geometry → Room Model → Scene Graph → Spatial Queries → Digital Twin → API → Viewer → Supabase).
 
@@ -165,14 +166,14 @@ The next major architectural phase is the Android client:
 
 **Bug found and fixed in `src/visionforge/reconstruction/incremental.py`:** on `pycolmap` >= 3 (installed: 4.2.0), `Image.cam_from_world` is an instance method, not a property. `image.cam_from_world.rotation.quat` crashed with an `AttributeError` the first time a reconstruction actually succeeded. This was never caught by `tests/test_reconstruction.py` because that test's synthetic fixture is a pure 2D translation (planar-scene degeneracy for `pycolmap.incremental_mapping`), which yields 0 reconstructions and never exercises this code path. Fixed by calling `image.cam_from_world()`.
 
-**Real test artifact:** No real phone video existed in the repo. Generated `data/input/room.mp4` (gitignored, not committed) via a from-scratch pure-OpenCV perspective-warp rasterizer (`gen_room_video2.py`, kept in the session scratchpad, not the repo) — a textured 6-face box room rendered from 24 camera poses that dolly sideways while smoothly tilting from floor-level to ceiling-level, giving genuine translation and parallax (no ML, no Open3D scene renderer — Open3D's `OffscreenRenderer` was tried first and produced all-black frames in this environment even for a canonical sphere test; documented and abandoned rather than debugged further, per guidance to not chase obscure environment-specific issues).
+**Synthetic test artifact:** No physical-camera phone video existed in the repo, and none was available in this environment. Generated `data/input/synthetic_box_room.mp4` (gitignored, not committed) via a from-scratch pure-OpenCV perspective-warp rasterizer (`gen_room_video2.py`, kept in the session scratchpad, not the repo) — a textured 6-face box room rendered from 24 camera poses that dolly sideways while smoothly tilting from floor-level to ceiling-level, giving genuine translation and parallax (no ML, no Open3D scene renderer — Open3D's `OffscreenRenderer` was tried first and produced all-black frames in this environment even for a canonical sphere test; documented and abandoned rather than debugged further, per guidance to not chase obscure environment-specific issues). **This is a rendered synthetic video, not physical-camera footage** — it exercises the pipeline honestly (real feature matching, real triangulation, real RANSAC), but says nothing about robustness to real sensor noise, motion blur, or rolling shutter.
 
-**Ran the fixed pipeline end-to-end** (`visionforge reconstruct --video data/input/room.mp4 --output outputs/final_demo --no-viewer`), with real (non-fabricated) results at every stage:
+**Ran the fixed pipeline end-to-end** (`visionforge reconstruct --video data/input/synthetic_box_room.mp4 --output outputs/final_demo --no-viewer`), with genuine (non-fabricated) results at every stage:
 - P0: 24 frames extracted.
-- P1: two-view stage found 646/664 keypoints, 298 Lowe matches, 258 geometric inliers, 134 triangulated points. Incremental SfM registered all 24 cameras and triangulated 1692 3D points (`p1/reconstruction/sparse_cloud.ply`, `cameras.json` — real quaternions/translations/SIMPLE_RADIAL params, confirming the `cam_from_world()` fix works).
-- P2: cleaned to 1457 points, found 4 real RANSAC planes — classified `{floor: 2, wall: 1, unknown: 1, ceiling: 0}`. Note: two of the four planes were both classified `floor` (near-identical centroids) — the real floor was likely split into two RANSAC segments by the existing classification thresholds; this is pre-existing P2 classification behavior, not a bug introduced here, and per the hard rules P2's RANSAC/classification logic was not touched.
+- P1: two-view stage found 646/664 keypoints, 298 Lowe matches, 258 geometric inliers, 134 triangulated points. Incremental SfM registered all 24 cameras and triangulated 1692 3D points (`p1/reconstruction/sparse_cloud.ply`, `cameras.json` — genuine quaternions/translations/SIMPLE_RADIAL params, confirming the `cam_from_world()` fix works).
+- P2: cleaned to 1457 points, found 4 genuine RANSAC planes — classified `{floor: 2, wall: 1, unknown: 1, ceiling: 0}`. Note: two of the four planes were both classified `floor` (near-identical centroids) — the floor was likely split into two RANSAC segments by the existing classification thresholds; this is pre-existing P2 classification behavior, not a bug introduced here, and per the hard rules P2's RANSAC/classification logic was not touched.
 - `scale.metric_available: false` (correctly honest — no reference distance was supplied, so `room.length/width/height/floor_area` are in arbitrary reconstruction units, not meters).
-- Scene graph: 5 nodes, 10 edges (`contains`, `perpendicular_to`, `adjacent_to`, `parallel_to`) generated correctly from the real room model.
+- Scene graph: 5 nodes, 10 edges (`contains`, `perpendicular_to`, `adjacent_to`, `parallel_to`) generated correctly from the room model.
 - `pytest tests/` remained green (6/6) throughout.
 
 **Not yet done (deferred to Task A onward):** room_model.json plane entries still only carry `id/type/equation/normal/support/centroid` — no boundary polygon, extent, area, or per-plane PLY path yet. `scene_graph.py`'s `adjacent_to` is still the pre-existing centroid-distance-<10.0 heuristic. No `tests/test_spatial.py` yet. No frontend exists anywhere in the repo (confirmed via search — no `package.json`/Vite anywhere); it will be created under `frontend/` only when Task F is reached.
@@ -185,11 +186,11 @@ The next major architectural phase is the Android client:
 
 **Tests added (`tests/test_geometry.py`):** `test_merge_coplanar_planes_merges_split_wall` (two same-normal segments 0.001 apart merge into one with summed support and correctly recomputed centroid; a genuinely perpendicular third plane is left untouched) and `test_merge_coplanar_planes_keeps_distinct_parallel_planes_separate` (floor vs. ceiling — same normal, offset 2.5 apart — must NOT merge). `pytest tests/`: 8/8 green.
 
-**Before/after on real data**, isolating the merge fix from the threshold-default fix by re-running P2 on the *same* cloud from the earlier session with the *same* explicit `--plane-distance-threshold 0.05` (the old absolute default) that had originally produced the bug:
+**Before/after on the synthetic clip's data**, isolating the merge fix from the threshold-default fix by re-running P2 on the *same* cloud from the earlier session with the *same* explicit `--plane-distance-threshold 0.05` (the old absolute default) that had originally produced the bug:
 - Before (no merge logic existed): 4 planes — `plane_000 floor support=976`, `plane_001 wall support=96`, `plane_002 floor support=75` (the spurious floor split), `plane_003 unknown support=80`.
 - After (merge active, same cloud, same threshold): 3 planes — `plane_000 floor support=1049` (merged; not exactly 976+75 because Open3D's `segment_plane` RANSAC is itself randomized and reran from scratch, but confirms the merge collapses the split), `plane_001 wall support=93`, `plane_002 unknown support=80`.
 
-Separately, re-running the full `visionforge reconstruct` end-to-end on `data/input/room.mp4` with the new scale-relative defaults (bbox diagonal 32.78 → voxel_size≈0.164, plane_distance_threshold≈0.328, vs. the old fixed 0.05) avoids the fragmentation at the RANSAC stage itself: `{floor: 1, wall: 2, ceiling: 0, unknown: 0}`, 3 planes total, no duplicates. `pytest tests/` remained green throughout.
+Separately, re-running the full `visionforge reconstruct` end-to-end on `data/input/synthetic_box_room.mp4` with the new scale-relative defaults (bbox diagonal 32.78 → voxel_size≈0.164, plane_distance_threshold≈0.328, vs. the old fixed 0.05) avoids the fragmentation at the RANSAC stage itself: `{floor: 1, wall: 2, ceiling: 0, unknown: 0}`, 3 planes total, no duplicates. `pytest tests/` remained green throughout.
 
 ## 18. Session Log — 2026-09-21 (cont.): Task A — room geometry model
 
@@ -204,9 +205,9 @@ Separately, re-running the full `visionforge reconstruct` end-to-end on `data/in
 - `export_plane_plys(planes, output_dir)`: writes each (post-merge) plane's inlier cloud to `planes/<plane_id>.ply` and returns the id→path map, which `align_and_measure_room` embeds as each plane's `ply_path`. Wired into `geometry/pipeline.py` between plane extraction/merge and `align_and_measure_room`.
 - **Units:** per-plane geometry (`boundary`, `extent`, `area`, `centroid`, `intersections`) stays in raw, unscaled reconstruction-frame units, consistent with the pre-existing (also unscaled) `equation`/`normal`/`centroid` fields. Only the top-level `room` summary (`length`/`width`/`height`/`floor_area`/`bounding_polygon_room`) applies `scale_factor`, exactly as it already did — `scale.metric_available` stays honest either way.
 
-**Tests added (`tests/test_geometry.py`):** `test_room_model_geometry_extension`, on the existing synthetic 5×5×2.5 box-room fixture — asserts the floor's extent is ~5×5 and its hull area ~20-25 (a real hull is slightly smaller than the bbox product), a wall's extent is ~5×2.5, every plane's `ply_path` points at a real file on disk, at least one real floor↔wall intersection exists as a proper 3D segment in both frames, and the room's bounding polygon spans ~5×5. `pytest tests/`: 9/9 green.
+**Tests added (`tests/test_geometry.py`):** `test_room_model_geometry_extension`, on the existing synthetic 5×5×2.5 box-room fixture — asserts the floor's extent is ~5×5 and its hull area ~20-25 (the true convex-hull area is slightly smaller than the bbox product), a wall's extent is ~5×2.5, every plane's `ply_path` points at a real file on disk, at least one genuine floor↔wall intersection exists as a proper 3D segment in both frames, and the room's bounding polygon spans ~5×5. `pytest tests/`: 9/9 green.
 
-**Real-data run** (`data/input/room.mp4` → `visionforge reconstruct`): 3 planes (`floor:1, wall:2`). Floor `extent = {width: 8.54, height: 20.59}` — matches `room.length`/`room.width` from the pre-existing measurement method exactly, a useful cross-check; hull `area = 171.2` vs. bbox product `175.86` (hull is honestly smaller, as expected for a non-rectangular real boundary). Both floor↔wall pairs produced real intersection segments, each with `segment_room` y-coordinate ≈ 0 at both endpoints — correct, since the intersection of a wall with the floor must lie on the floor, and the room-frame origin is the floor's own centroid. Each plane's PLY was verified to exist on disk with the exact point count matching `support`.
+**Synthetic-clip run** (`data/input/synthetic_box_room.mp4` → `visionforge reconstruct`): 3 planes (`floor:1, wall:2`). Floor `extent = {width: 8.54, height: 20.59}` — matches `room.length`/`room.width` from the pre-existing measurement method exactly, a useful cross-check; hull `area = 171.2` vs. bbox product `175.86` (the true hull is honestly smaller, as expected for a non-rectangular boundary). Both floor↔wall pairs produced genuine intersection segments, each with `segment_room` y-coordinate ≈ 0 at both endpoints — correct, since the intersection of a wall with the floor must lie on the floor, and the room-frame origin is the floor's own centroid. Each plane's PLY was verified to exist on disk with the exact point count matching `support`.
 
 ## 19. Session Log — 2026-09-21 (cont.): Task B — plane relationships, cameras, spatial graph
 
@@ -214,7 +215,7 @@ Separately, re-running the full `visionforge reconstruct` end-to-end on `data/in
 
 **`src/visionforge/spatial/scene_graph.py`** (rewritten; `build_scene_graph` signature is now `build_scene_graph(room_model, cameras=None)`):
 - `_quat_to_rotation_matrix(qx, qy, qz, qw)`: hand-written quaternion→matrix conversion (no scipy). `_camera_world_position(rotation_quat, translation)`: `C = -R^T @ t`, matching pycolmap's `cam_from_world` convention (`rotation_quat` is `[x, y, z, w]` of `cam_from_world`).
-- Camera nodes are built from `p1/reconstruction/cameras.json` (now loaded and passed in by `cli.py`), ordered by frame **name** (not pycolmap's internal image id, which is registration order, not temporal order — ids we saw were e.g. 19, 4, 8, 6, 18...). A `trajectory_001` node holds the ordered positions (both frames) and the real piecewise path length.
+- Camera nodes are built from `p1/reconstruction/cameras.json` (now loaded and passed in by `cli.py`), ordered by frame **name** (not pycolmap's internal image id, which is registration order, not temporal order — ids we saw were e.g. 19, 4, 8, 6, 18...). A `trajectory_001` node holds the ordered positions (both frames) and the genuine piecewise path length.
 - `adjacent_to` no longer uses centroid distance. It now uses `_polygon_min_distance` (edge-to-edge distance between the two planes' Task-A boundary polygons, via a hand-written robust 3D segment-segment distance routine) against a scale-relative threshold (`ADJACENCY_DISTANCE_FRACTION = 0.05` of the room's own boundary-derived bounding-box diagonal, i.e. the same style of scale-relative threshold as P2's RANSAC/voxel sizing, just derived from `room_model.json`'s own plane boundaries since `scene_graph.py` doesn't have the raw cloud). The old `centroid < 10.0` heuristic is fully removed.
 - `intersects` edges are a direct pass-through of `room_model["intersections"]` (Task A) — not recomputed.
 - `above`/`below`: compared along `up_axis` via each entity's `centroid_room`/`position_room` y-component, both between horizontal surfaces (floor/ceiling pairs) and between every camera and every floor/ceiling plane, gated by a scale-relative `ABOVE_BELOW_EPSILON_FRACTION = 0.02` to avoid noise-level differences producing spurious edges. Both directions (`above` and `below`) are added explicitly so either can be queried directly.
@@ -224,7 +225,7 @@ Separately, re-running the full `visionforge reconstruct` end-to-end on `data/in
 
 **`tests/test_spatial.py`** (new, 14 tests): hand-built-pose quaternion tests independent of the scene graph (a known 90°-about-Z rotation checked against its hand-derived matrix and against a camera-center round-trip; a second rotated-pose round-trip; a known point-in-polygon case) + a hand-built 4×3×2.5 box room (identity room frame, so every expected number is computable by hand) covering every relation type: `contains`, `parallel_to`/`perpendicular_to` with exact `angle_deg` (0°/90°), `adjacent_to` with exact `distance` (0.0, since the hand-built walls genuinely share an edge with the floor), `intersects` (asserts the exact hand-supplied segment is passed through unchanged), `above`/`below` (exact `height_difference` of 2.5 and 1.25), `inside` for both an interior and a **deliberately outside** camera (asserting the outside case is still reported, with the correct `distance_to_boundary` of 6.0), and the trajectory node's path length. `pytest tests/`: 23/23 green.
 
-**Real-data run** (`data/input/room.mp4`), edge counts by relation type:
+**Synthetic-clip run** (`data/input/synthetic_box_room.mp4`), edge counts by relation type:
 
 | Relation | Before (old centroid heuristic, no cameras) | After (Task B) |
 |---|---|---|
@@ -238,7 +239,7 @@ Separately, re-running the full `visionforge reconstruct` end-to-end on `data/in
 | inside | 0 | 24 |
 | **total** | **6** | **107** |
 
-Notable honest details from the real run: `adjacent_to` distances are `0.34` and `0.05` (reconstruction units, well inside the ~1.7-unit scale-relative threshold for this cloud); `perpendicular_to` angles are `89.55°`/`87.43°` and `parallel_to` is `3.33°` — close to but not exactly 90°/0°, correctly reflecting real reconstruction noise rather than fabricated perfection. **All 24 real camera positions land inside `room.bounding_polygon_room`** (0 outside) — the specifically requested real-data check. Trajectory path length: `15.67` (reconstruction units) over 24 cameras.
+Notable honest details from the synthetic-clip run: `adjacent_to` distances are `0.34` and `0.05` (reconstruction units, well inside the ~1.7-unit scale-relative threshold for this cloud); `perpendicular_to` angles are `89.55°`/`87.43°` and `parallel_to` is `3.33°` — close to but not exactly 90°/0°, correctly reflecting genuine reconstruction noise rather than fabricated perfection. **All 24 camera positions land inside `room.bounding_polygon_room`** (0 outside) — the specifically requested check on this clip. Trajectory path length: `15.67` (reconstruction units) over 24 cameras.
 
 ## 20. Session Log — 2026-09-21 (cont.): Task C — spatial query engine
 
@@ -254,15 +255,15 @@ Notable honest details from the real run: `adjacent_to` distances are `0.34` and
 - `distance_between_surfaces`: parallel pair (`|dot(n1,n2)| > 0.85`) → plane-offset distance (`|d1 - d2|`, sign-corrected for anti-parallel normals, same convention as the Task-A merge fix); otherwise → `polygon_min_distance` on the two Task-A boundary polygons, imported from `geometry_utils`, not reimplemented.
 - `get_surface_intersection(id_a, id_b)`: looks up the `intersects` edge already built in Task B (checking both edge directions) and returns its `segment`/`point`/`direction`, or `None` if the pair never intersected — no recomputation.
 - Camera queries read `nodes_by_type["camera"]` and `nodes_by_type["trajectory"]` directly. `get_camera_position(index=None)` defaults to the last camera (chronologically last, since `scene_graph.py` already orders cameras by frame name); an out-of-range index returns `None`, not an exception.
-- `distance_from_camera_to_surface`/`distance_from_camera_to_all_surfaces`/`get_nearest_wall_to_camera`: point-to-plane distance, plus a `within_boundary` flag computed by projecting the foot of the perpendicular into the plane's own `(axis_u, axis_v)` frame and running `point_in_polygon_2d` against the boundary projected the same way — flags (rather than silently reports) a mathematically valid point-to-plane distance whose foot actually falls outside that surface's real, finite extent.
+- `distance_from_camera_to_surface`/`distance_from_camera_to_all_surfaces`/`get_nearest_wall_to_camera`: point-to-plane distance, plus a `within_boundary` flag computed by projecting the foot of the perpendicular into the plane's own `(axis_u, axis_v)` frame and running `point_in_polygon_2d` against the boundary projected the same way — flags (rather than silently reports) a mathematically valid point-to-plane distance whose foot actually falls outside that surface's genuine, finite extent.
 - Question dispatcher: `QUESTION_PATTERNS`, a list of `(compiled regex, handler method name, canonical phrasing)`. `answer_question` returns `{"supported": False, "answer": None, "supported_question_types": [...]}` — listing the canonical phrasings — for anything that matches no pattern, rather than guessing.
 
 **Tests added (`tests/test_spatial.py`, +28, total 51):** every `SpatialQueryEngine` method exercised on the same hand-built box room from Task B (plus a `floor_only_room_model` fixture for the no-ceiling-no-walls `None` case, and an empty-room fixture for the no-floor `None` case), each with a hand-computed expected number — e.g. `distance_between_surfaces("wall_south", "wall_north") == 3.0` (exact plane separation), `get_wall_area` distinguishing 7.5/10.0/8.0 by design so `get_largest_wall`/`get_smallest_wall` have an unambiguous answer, a camera positioned so its perpendicular foot on `wall_west` lands outside that wall's `z ∈ [0,3]` boundary (`within_boundary: False`) versus one that lands inside. Dispatcher: parametrized over all 4 example questions × 3 phrasings each (12 cases) plus one unsupported question asserting `supported_question_types` lists exactly the 4 canonical phrasings. `pytest tests/`: 51/51 green.
 
-**Real-data run** (`data/input/room.mp4`), every query exercised against the actual scene graph:
+**Synthetic-clip run** (`data/input/synthetic_box_room.mp4`), every query exercised against the actual scene graph:
 - Room dimensions: `length=20.65`, `width=8.60`, `height=6.85`, `floor_area=177.61` (reconstruction units, `metric=False`).
-- **Correction to the original expectation** that room height would come back `None` on this clip since no ceiling was detected: it does NOT come back `None` here, because the pre-existing (untouched) `align_and_measure_room` logic estimates height from wall-point projections whenever a floor **and at least one wall** exist, and this reconstruction has 2 walls. This is exactly the pre-existing P2 fallback path, not something Task C changed.
+- **Correction to the original expectation** that room height would come back `None` on this clip since no ceiling was detected: it does NOT come back `None` here, because the pre-existing (untouched) `align_and_measure_room` logic estimates height from wall-point projections whenever a floor **and at least one wall** exist, and this reconstruction has 2 walls. This is exactly the pre-existing P2 fallback path, not something Task C changed. (See §21 for the follow-up `method` field addressing this.)
 - Genuine `None` results found instead: `get_wall_area("plane_000")` → `None` (that id is the floor, not a wall); `get_surface_intersection("plane_001", "plane_002")` → `None` (the two walls are parallel, never intersect — no fabricated segment); `get_camera_position(index=999)` → `None` (out of range).
 - `distance_between_surfaces`: `plane_000↔plane_001 = 0.008`, `plane_000↔plane_002 = 0.39` (both perpendicular/boundary-based, honestly near-zero since they're adjacent), `plane_001↔plane_002 = 19.98` (parallel/plane-offset-based).
-- Camera/trajectory: 24 cameras, `path_length = 19.30`; nearest wall to the last camera is `plane_002` at distance `4.79`, with `within_boundary: False` (the perpendicular foot falls outside that wall's real detected extent — an honest, informative flag, not hidden).
-- All 4 example dispatcher questions answered correctly against the real graph; the unsupported question correctly listed all 4 supported phrasings.
+- Camera/trajectory: 24 cameras, `path_length = 19.30`; nearest wall to the last camera is `plane_002` at distance `4.79`, with `within_boundary: False` (the perpendicular foot falls outside that wall's genuine detected extent — an honest, informative flag, not hidden).
+- All 4 example dispatcher questions answered correctly against the graph; the unsupported question correctly listed all 4 supported phrasings.
