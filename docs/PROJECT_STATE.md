@@ -24,22 +24,25 @@
 - Do not introduce ML merely because it makes the problem easier.
 
 ## 3. Current Architecture
-The backend is a purely Python-based offline and live-tracking pipeline; a React/TypeScript frontend (`frontend/`) consumes it entirely through the API.
-- **Directories:** 
+The full chain is: classical CV offline pipeline (Python) → FastAPI backend (read-only + optional persist) → React/TypeScript/three.js frontend, with an optional Supabase persistence layer behind the same backend interface as a zero-config local-JSON fallback. Every stage of this chain has been run end to end against a synthetic clip (never physical-camera footage — see §9, §12) and against a completely fresh `git clone` (see §26).
+
+- **Directories:**
   - `src/visionforge/video/`: Frame extraction (P0).
   - `src/visionforge/reconstruction/`: Feature matching, epipolar geometry, PyCOLMAP incremental SfM (P1).
-  - `src/visionforge/geometry/`: Point cloud cleaning, RANSAC plane extraction, room modeling (P2).
-  - `src/visionforge/spatial/`: Scene graph generation, shared geometry utilities, spatial queries, and Open3D visualization (P3/P4).
-  - `src/visionforge/twin/`: `DigitalTwin` data layer — bundles room_model/cameras/scene_graph + provenance into `twin.json` (see §22).
-  - `src/visionforge/api/`: Read-only + persist FastAPI backend over `outputs/<run>/` and the configured `PersistenceBackend` (see §23, §25).
-  - `src/visionforge/persistence/`: `PersistenceBackend` interface, `LocalJsonBackend` (default, zero-config, writes under `outputs/`) and `SupabaseBackend` (opt-in via `SUPABASE_URL`/`SUPABASE_KEY`). See §25 and `docs/supabase.md`.
-  - `src/visionforge/live/`: OpenCV KLT + 5-point algorithm visual odometry (P4).
-  - `frontend/`: Vite + React + TypeScript + three.js digital twin viewer, talking only to the API (see §24). Pinned `package.json` versions; `src/lib/frames.ts` holds the one client-side room-frame transform (for the point cloud PLY — everything else is served pre-transformed).
-- **Data Flow:** Video -> Frames -> Features -> Sparse Cloud -> Planar Geometry -> JSON Scene Graph -> `twin.json` -> API (+ optional persist to Supabase/local JSON) -> `frontend/` viewer (and the standalone Open3D viewer, still available via `cli.py reconstruct`).
+  - `src/visionforge/geometry/`: Point cloud cleaning, RANSAC plane extraction, room modeling — boundaries, extents, intersections, coplanar-segment merging (P2 + Task A).
+  - `src/visionforge/spatial/`: Scene graph generation (`scene_graph.py`), shared geometry utilities (`geometry_utils.py`), the spatial query engine (`queries.py`), and the Open3D visualization (`viewer.py`) (P3/P4 + Tasks B/C).
+  - `src/visionforge/twin/`: `DigitalTwin` data layer — bundles room_model/cameras/scene_graph + provenance into `twin.json` (Task D).
+  - `src/visionforge/api/`: FastAPI backend over `outputs/<run>/` and the configured `PersistenceBackend` — session discovery, read endpoints, spatial queries, file serving, and `/persist` (Tasks E, G).
+  - `src/visionforge/persistence/`: `PersistenceBackend` interface, `LocalJsonBackend` (default, zero-config, writes under `outputs/`), `SupabaseBackend` (opt-in via `SUPABASE_URL`/`SUPABASE_KEY`) (Task G; see `docs/supabase.md`).
+  - `src/visionforge/live/`: OpenCV KLT + 5-point algorithm visual odometry (P4). Untouched by Tasks A-H.
+  - `frontend/`: Vite + React + TypeScript + three.js digital twin viewer, talking only to the API (Task F). Pinned `package.json` versions; `src/lib/frames.ts` holds the one client-side room-frame transform (for the point cloud PLY — everything else is served pre-transformed).
+  - `scripts/`: `generate_synthetic_clip.py` (the room-video generator) and `run_demo.sh`/`run_demo.ps1` (end-to-end demo runner, both tested from a clean checkout — see §26).
+  - `supabase/migrations/`: `0001_init.sql`, the persistence schema.
+- **Data Flow:** Video → Frames → Features → Sparse Cloud → Planar Geometry → JSON Scene Graph → `twin.json` → API (+ optional persist to Supabase/local JSON) → `frontend/` viewer (and the standalone Open3D viewer, still available via `cli.py reconstruct`, unmodified since P4).
 - **Dependencies:** `opencv-python`, `numpy`, `open3d`, `pycolmap`, `pytest`, `fastapi`, `uvicorn`, `httpx` (test client), `supabase` (only imported when `SupabaseBackend` is actually selected); `frontend/`: `react`, `three`, `vite`, `typescript`, `vitest` (see `frontend/package.json` for pinned versions).
-- **CLI Entry Point:** `src/visionforge/cli.py`
-- **Android/Mobile Components:** None currently exist.
-- **Supabase Integration:** MCP server configured in the developer environment, but **zero** integration exists in the actual source code.
+- **CLI Entry Point:** `src/visionforge/cli.py` — `reconstruct`, `twin build`, `persist`, `live`.
+- **Android/Mobile Components:** None currently exist (P4/§13 scope, not started).
+- **Supabase Integration:** Implemented and opt-in (`src/visionforge/persistence/`, Task G) — off by default, selected only by `SUPABASE_URL`/`SUPABASE_KEY`. No Supabase MCP was available in the environment this was built in, so no real database round-trip has been performed (see §25).
 
 ## 4. Prototype History
 
@@ -66,29 +69,60 @@ The backend is a purely Python-based offline and live-tracking pipeline; a React
 ## 5. Current Source Tree
 ```text
 src/visionforge/
-├── cli.py                 # Main unified CLI (reconstruct, live). DO NOT refactor unnecessarily.
+├── cli.py                     # Unified CLI: reconstruct, twin build, persist, live.
 ├── video/
-│   └── extract_frames.py  # P0: Video frame extraction using cv2.VideoCapture.
+│   └── extract_frames.py      # P0: Video frame extraction using cv2.VideoCapture.
 ├── reconstruction/
-│   ├── pipeline.py        # P1: Orchestrates feature extraction -> matching -> SfM.
-│   ├── two_view.py        # P1: SIFT matching and geometric verification.
-│   └── incremental.py     # P1: Wrapper around pycolmap.
+│   ├── pipeline.py            # P1: Orchestrates feature extraction -> matching -> SfM.
+│   ├── two_view.py            # P1: SIFT matching and geometric verification.
+│   └── incremental.py         # P1: Wrapper around pycolmap (cam_from_world() fix, §16).
 ├── geometry/
-│   ├── pipeline.py        # P2: CLI for geometry phase.
-│   ├── point_cloud.py     # P2: Open3D cleaning (voxel, outlier removal).
-│   ├── plane_fitting.py   # P2: RANSAC segment_plane and normal classification.
-│   └── room_model.py      # P2: Coordinate bounding and room measurement.
+│   ├── pipeline.py            # P2: CLI for geometry phase; scale-relative thresholds (§17).
+│   ├── point_cloud.py         # P2: Open3D cleaning (voxel, outlier removal).
+│   ├── plane_fitting.py       # P2: RANSAC segment_plane, classification, merge_coplanar_planes (§17).
+│   └── room_model.py          # P2/Task A: boundaries, extents, intersections, room-frame,
+│                               #   per-plane PLY export, height/length/width/area *_method (§18, §21).
 ├── spatial/
-│   ├── scene_graph.py     # P3: Builds semantic JSON graph from P2 room model.
-│   ├── queries.py         # P3: Deterministic geometry query engine.
-│   └── viewer.py          # P4: Open3D visualization (bounding boxes for planes).
+│   ├── scene_graph.py         # Task B: contains/parallel_to/perpendicular_to/adjacent_to/
+│   │                          #   intersects/above/below/inside + camera/trajectory nodes.
+│   ├── geometry_utils.py      # Task C: shared segment/polygon distance + point-in-polygon.
+│   ├── queries.py             # Task C: SpatialQueryEngine -- indexed lookups, unit-aware
+│   │                          #   measurements, question dispatcher.
+│   └── viewer.py              # P4: Open3D visualization (unmodified by Tasks A-H).
+├── twin/
+│   └── digital_twin.py        # Task D: DigitalTwin -- build_from_run_dir / to_dict / save / load.
+├── api/
+│   ├── app.py                 # Tasks E/G: FastAPI app -- sessions, room_model/scene_graph/
+│   │                          #   twin/cameras/measurements, query, cloud/plane PLYs, persist.
+│   └── store.py                # Task E: SessionStore (run-directory discovery + registration).
+├── persistence/
+│   ├── backend.py             # Task G: PersistenceBackend ABC.
+│   ├── local_backend.py       # Task G: LocalJsonBackend (default, outputs/<id>/persistence/).
+│   ├── supabase_backend.py    # Task G: SupabaseBackend (supabase-py imported only here).
+│   └── __init__.py             # Task G: get_backend() selection, persist_run() shared logic.
 └── live/
-    └── tracker.py         # P4: Classical visual odometry (KLT + 5-point EM).
+    └── tracker.py              # P4: Classical visual odometry (KLT + 5-point EM). Untouched.
+
+scripts/
+├── generate_synthetic_clip.py # The synthetic room-video generator (Task H).
+├── run_demo.sh                # End-to-end demo runner, bash (Task H, §26).
+└── run_demo.ps1               # End-to-end demo runner, PowerShell (Task H, §26).
+
+supabase/migrations/
+└── 0001_init.sql              # Task G persistence schema.
+
+frontend/src/
+├── App.tsx                    # Task F: top-level layout/state.
+├── components/                # SessionList, MeasurementsPanel, QueryBox, InspectPanel,
+│                               #   ProvenanceFooter, Viewer3D (raw three.js).
+├── lib/                       # frames.ts (room-frame transform), selectors.ts, api.ts,
+│                               #   polygon3d.ts, frustum.ts, labelSprite.ts.
+└── types/twin.ts               # Types generated from the actual API JSON.
 ```
 
 ## 6. Current CLI / Commands
 Based on the repository, these commands currently function:
-- **Run automated tests:** `source venv/bin/activate && PYTHONPATH=src pytest tests/`
+- **Run automated tests:** `PYTHONPATH=src pytest tests/` (from an activated venv with `requirements.txt` installed — `.venv/Scripts/activate` on Windows, `.venv/bin/activate` on POSIX; `scripts/run_demo.sh`/`.ps1` create this venv from scratch).
 - **Run offline reconstruction pipeline:** `python -m visionforge.cli reconstruct --video <path_to_mp4> [--output <dir>] [--no-viewer] [--input-type synthetic|real] [--persist]` — writes `run_status.json` and, as its last step, `twin.json` into `<dir>`; `--persist` also saves through the configured `PersistenceBackend` (see §25).
 - **(Re)build a digital twin from an existing run:** `python -m visionforge.cli twin build --run-dir <dir>`
 - **Persist an existing run directory:** `python -m visionforge.cli persist --run-dir <dir> [--session-id <id>]`. See §25 / `docs/supabase.md`.
@@ -99,26 +133,35 @@ Based on the repository, these commands currently function:
 
 ## 7. Tests & Verification
 
-| Component | Test | Result | Evidence | Status |
-|-----------|------|--------|----------|--------|
-| P0 Video Ingestion | Automated (`test_extract_frames.py`) | Pass | Pytest output | Verified (Synthetic) |
-| P1 Reconstruction | Automated (`test_reconstruction.py`) | Pass | Pytest output | Verified (Synthetic) |
-| P2 Room Geometry | Automated (`test_geometry.py`) | Pass | Pytest output | Verified (Synthetic) |
-| P3 Scene Graph | Manual Script | Pass | Terminal output logs | Verified (Synthetic) |
-| P4 Offline Viewer | CLI dry run | Pass | Open3D window generation | Partially Verified |
-| P4 Live Tracker | None | Untested | No physical webcam test | UNVERIFIED |
-| End-to-End Synthetic Video | Full pipeline run | Pass | `data/input/synthetic_box_room.mp4` (rendered, not physical-camera footage) — see §16-20 | Verified (Synthetic) |
-| End-to-End Physical-Camera Video | None | Untested | No physical-camera video has been provided yet | UNVERIFIED |
-| Android Integration | None | Untested | No Android code exists | PLANNED |
+Backend: `PYTHONPATH=src pytest tests/` — **116 tests, 116 passing** (see §26 for the actual pasted run). Frontend: `cd frontend && npm run test` (vitest) — **16 tests, 16 passing**; `npm run build` — 0 TypeScript errors.
+
+| Component | Test file | Count | Evidence |
+|---|---|---|---|
+| P0 Video Ingestion | `test_extract_frames.py` | 3 | Pytest output; also exercised for real by every `reconstruct` run |
+| P1 Reconstruction | `test_reconstruction.py` | 2 | Pytest output; also exercised for real (24 cameras, 1700+ points on the synthetic clip) |
+| P2 Room Geometry (incl. Task A boundaries/extents/intersections, the split-plane merge, and the height-method fix) | `test_geometry.py` | 6 | Pytest output; §17, §18, §21 |
+| P3 Scene Graph + Spatial Queries (Tasks B/C) | `test_spatial.py` | 43 | Pytest output; hand-built box room with known answers for every relation and query, dispatcher tests; §19, §20 |
+| Digital Twin data layer (Task D) | `test_twin.py` | 9 | Pytest output, incl. the build→save→load round-trip; §22 |
+| API (Tasks E/G) | `test_api.py` | 27 | Pytest output (`TestClient`), incl. CORS and persist/fallback tests; §23, §25 |
+| Persistence (Task G) | `test_persistence.py` | 26 | Pytest output; `LocalJsonBackend` full coverage + `SupabaseBackend` against a fake client, no network; §25 |
+| Frontend (Task F) | `frames.test.ts`, `selectors.test.ts` | 16 | vitest output; §24 |
+| P4 Offline Viewer (Open3D) | CLI dry run | — | Opens a window; unmodified by Tasks A-H; Partially Verified |
+| P4 Live Tracker | None | — | No physical webcam test; UNVERIFIED |
+| End-to-End Synthetic Video (full pipeline → API → frontend, on a clean checkout) | `scripts/run_demo.sh`/`.ps1` | — | Real pasted output; see §26 |
+| End-to-End Physical-Camera Video | None | — | No physical-camera video has been provided yet; UNVERIFIED (§12, `docs/real_video_checklist.md`) |
+| Android Integration | None | — | No Android code exists; PLANNED |
 
 ## 8. Generated Outputs / Artifacts
-- `sparse_cloud.ply` / `cameras.json`: Genuine (non-fabricated) P1 outputs, produced from a synthetic rendered textured video (not physical-camera footage) with genuine camera translation — see §16.
-- `room_model.json`: Per plane: `equation`, `normal`, `centroid` (reconstruction frame) + `centroid_room` (room frame), `support`, `in_plane_axes`, `extent` (width/height), `area` (convex-hull polygon area), `boundary`/`boundary_room` (convex-hull polygon vertices in each frame), `ply_path` (that plane's own inlier cloud). Top-level `intersections`: perpendicular plane pairs whose extents overlap, as a clipped 3D segment in both frames. `room.bounding_polygon_room`: the room's footprint outline. See §17-18 for the merge fix and Task A.
-- `p2/planes/<plane_id>.ply`: Each plane's own inlier point cloud, exported individually.
-- `scene_graph.json`: Nodes and edges representing semantic relationships (e.g., floor is perpendicular to wall).
-- `statistics.json`: Contains retention ratios, plane counts, resolved scale-relative thresholds, and processing times.
-- `run_status.json`: `{input_type, video, stages: {<stage>: "success"|"failed"}}`, written incrementally by `cli.py` after every stage.
-- `twin.json`: A single self-contained bundle (room_model + cameras + scene_graph + provenance, with the sparse cloud referenced by path, never embedded) a frontend can load without touching the other files. See §22.
+Per run directory (`outputs/<session>/`):
+- `p0/frames/*.jpg`, `p0/metadata.json`, `p0/contact_sheet.jpg` — P0 frame extraction.
+- `p1/reconstruction/sparse_cloud.ply`, `cameras.json` — genuine (non-fabricated) P1 outputs: real triangulated points, real camera poses (`rotation_quat` is `[x,y,z,w]` of `cam_from_world`).
+- `p2/room_model.json` — per plane: `equation`, `normal`, `centroid` (reconstruction frame) + `centroid_room` (room frame), `support`, `in_plane_axes`, `extent`, `area` (convex-hull), `boundary`/`boundary_room`, `ply_path`. Top-level `intersections` (clipped 3D segments, both frames), `room.bounding_polygon_room`, and `room.{length,width,height,floor_area}_method` (`"floor_to_ceiling"` | `"wall_extent_estimate"` | `"floor_extent"` | `null`) — see §18, §21.
+- `p2/planes/<plane_id>.ply` — each plane's own inlier point cloud.
+- `p2/statistics.json` — retention ratios, plane counts, `resolved_thresholds` (the actual scale-relative voxel/RANSAC values used).
+- `scene_graph.json` — nodes (room/planes/cameras/trajectory) and edges (`contains`/`parallel_to`/`perpendicular_to`/`adjacent_to`/`intersects`/`above`/`below`/`inside`), each edge carrying its supporting number.
+- `run_status.json` — `{input_type, video, stages: {<stage>: "success"|"running"|"failed"}}`, written incrementally after every stage (§16, §24).
+- `twin.json` — a single self-contained bundle (room_model + cameras + scene_graph + provenance; the sparse cloud referenced by path, never embedded) a frontend can load without touching the other files (§22).
+- `persistence/` (only if `--persist` was used or `POST /sessions/{id}/persist` was called) — `session.json`, `room_models/vN.json`, `scene_graphs/vN.json`, `twins/vN.json`, `measurements.json`, `processing_status.json` — the same data, either here (`LocalJsonBackend`) or in Supabase (`SupabaseBackend`), never both by default (§25).
 
 ## 9. Known Problems / Limitations
 - **No Physical-Camera Video Verification:** The pipeline has strictly been tested on synthetic data — a hand-built synthetic point cloud, and a synthetic rendered video (`data/input/synthetic_box_room.mp4`). No physical-camera video has been run through it yet. Real-world motion blur, textureless walls, and sensor noise are untested.
@@ -189,7 +232,7 @@ The next major architectural phase is the Android client:
 - Scene graph: 5 nodes, 10 edges (`contains`, `perpendicular_to`, `adjacent_to`, `parallel_to`) generated correctly from the room model.
 - `pytest tests/` remained green (6/6) throughout.
 
-**Not yet done (deferred to Task A onward):** room_model.json plane entries still only carry `id/type/equation/normal/support/centroid` — no boundary polygon, extent, area, or per-plane PLY path yet. `scene_graph.py`'s `adjacent_to` is still the pre-existing centroid-distance-<10.0 heuristic. No `tests/test_spatial.py` yet. No frontend exists anywhere in the repo (confirmed via search — no `package.json`/Vite anywhere); it will be created under `frontend/` only when Task F is reached.
+*(The boundary polygons/extent/area/PLY-path fields, the geometric `adjacent_to`, `tests/test_spatial.py`, and the frontend that this log entry originally flagged as "not yet done" were all completed in Tasks A, B, and F respectively — see §18-20 and §24.)*
 
 ## 17. Session Log — 2026-09-21 (cont.): split-floor fix before Task A
 
@@ -422,3 +465,40 @@ dist/assets/index-DSzKxFwa.js    778.86 kB │ gzip: 208.88 kB
 **Real-data verification:** ran `visionforge persist --run-dir outputs/final_demo` against the real synthetic-clip run (no env vars set, so `LocalJsonBackend`) — produced real files: `session.json` (`input_type: synthetic`, `video_name: data\input\synthetic_box_room.mp4`, `status: success`), `room_models/v1.json`, `scene_graphs/v1.json`, `twins/v1.json`, `measurements.json` (4 real rows — `length: 20.57`, `width: 8.54`, `height: 6.56` with `method: wall_extent_estimate`, `floor_area: 175.70`), `processing_status.json` (all 5 stages `success`). Also called `POST /sessions/final_demo/persist` through `TestClient(create_app(outputs_root="outputs"))` against the same real session and got the same result via the API path.
 
 **Supabase MCP / real round-trip: not available.** `ToolSearch("supabase")` found no Supabase MCP tools configured in this environment, so the migration was never applied to a real Supabase project and no real network round-trip was performed — `SupabaseBackend` is verified only against `FakeSupabaseClient` (see above) and by code review against the actual `supabase-py` 2.31.0 API (`create_client` signature and the postgrest query-builder chain were checked directly against the installed package, not assumed). This is stated explicitly per instructions, rather than claiming a round-trip that didn't happen. If a Supabase project becomes available later: `supabase db push` (or paste `0001_init.sql`), set `SUPABASE_URL`/`SUPABASE_KEY`, then `visionforge persist --run-dir outputs/final_demo` should be the first real round-trip to try.
+
+## 26. Session Log — 2026-09-21 (cont.): Task H — final integration verification
+
+**Scope:** closing task for the Spatial Intelligence + Digital Twin chain. Verification and documentation only — no new pipeline features. Goal: prove the whole chain (venv → pip install → synthetic clip → offline reconstruct with `--persist` → API → frontend build+dev server) actually works from a completely clean checkout, not just in this working copy, and fix anything that only worked because of accumulated local state.
+
+**Clean-checkout run (bash):** `git clone` of this repo into a fresh directory (first attempt in the session scratchpad failed for an environmental reason — see the `MAX_PATH` bug below — succeeded after re-cloning to `C:\vftest`). From nothing: `python -m venv .venv`, `pip install -r requirements.txt`, generated `data/input/synthetic_box_room.mp4` (24 frames, 525929 bytes — same size as the known-good clip, confirming the generator script is fully self-contained and reproducible outside the original working copy), ran `visionforge reconstruct --video ... --output outputs/demo --input-type synthetic --no-viewer --persist`. Real, non-fabricated results: two-view stage `{frame1_kps: 646, frame2_kps: 664, raw_matches: 646, lowe_matches: 298, geometric_inliers: 258, inlier_ratio: 0.866, reconstructed_points: 134}`; incremental SfM `{num_reconstructions: 1, reconstructed_cameras: 24, reconstructed_points: 1707}`; classifications `{floor: 1, ceiling: 0, wall: 2, unknown: 0}`. Started the API (`uvicorn visionforge.api.app:app`) and, in `frontend/`, ran `npm ci && npm run build` then the dev server — both succeeded from a clean `node_modules`.
+
+**Real `curl` output against the clean-checkout API** (pasted verbatim into `docs/final_demo.md` — not reproduced a second time here):
+- `GET /sessions` → one session, `id: demo`, all five `stage_status` entries `success`, `scale.metric_available: false`, `height_method: wall_extent_estimate`.
+- `GET /sessions/demo/twin` → `room_model.room`: length=20.597, width=8.535, height=6.544, floor_area=175.80 (reconstruction units), 3 planes, real `sparse_cloud_path`.
+- `POST /sessions/demo/query {"question": "Which wall is largest?"}` → `{supported: true, question_type: "largest_wall", answer: {wall_id: "plane_002", area: {value: 37.58, metric: false, units: "reconstruction_units"}}}`.
+- `POST /sessions/demo/query {"question": "What color is the floor?"}` → `{supported: false, question_type: null, answer: null, message: "Unsupported question.", supported_question_types: [...]}` — deliberately unsupported, to prove the API is honest about what it can't answer rather than guessing.
+
+**Real bugs found and fixed during this verification** (all four were genuinely reproduced, not hypothesized — each "only worked because of state in the working copy" per the task's own bar for what counts as a bug):
+1. **`pycolmap` DLL import failure on a deep clone path** (`ImportError: DLL load failed while importing _core: The filename or extension is too long`) — a Windows `MAX_PATH` limitation hit when cloning into the session's deeply-nested scratchpad temp directory. Not a code bug; fixed by re-cloning to a short path (`C:\vftest`) and documented as an environmental caveat in `docs/final_demo.md`'s limitations.
+2. **Wrong PID captured for "stop the server" instructions.** On Windows, backgrounding `uvicorn ...` (bash `&`) or `npm run dev` (PowerShell `Start-Process -FilePath "npm"`) captures the PID of a launcher/wrapper process (a pip console-script stub, or `npm.cmd`), not the actual long-running server that ends up bound to the port — confirmed by `taskkill`/`Stop-Process` failing to find the printed PID. **Fixed** in both `scripts/run_demo.sh` (`find_pid_by_port()`, netstat-based, 15×1s retry) and `scripts/run_demo.ps1` (`Find-PidByPort`, `Get-NetTCPConnection`-based) — each looks up the real PID bound to the expected port after starting the server. Verified by direct comparison against `netstat -ano` / `Get-NetTCPConnection` for both the bash run (API 10620, frontend 10324) and the PowerShell run (API 11004, frontend 17164) — exact match both times.
+3. **bash's `kill` can't reach a Windows PID from a different shell session** (MSYS-specific PID-mapping limitation) — even with the *correct* PID, `kill $PID` failed with "No such process" when run from a different terminal than the one that started the server. `taskkill //F //PID X //PID Y` worked reliably. Fixed by making `run_demo.sh`'s printed stop-instructions use `taskkill`, with an explanation of why plain `kill` doesn't work here.
+4. **Windows `os.rename` collision on a re-run into a non-empty output directory** (`FileExistsError: [WinError 183] Cannot create a file when that file already exists`, from `reconstruction/pipeline.py`'s visualization-file rename — Windows' `os.rename`, unlike POSIX, refuses to overwrite an existing destination). This is pre-existing behavior inside `reconstruction/pipeline.py`, which is off-limits to modify per the project's hard rules. **Fixed at the demo-script level instead**: both scripts now clear `outputs/demo` immediately before calling `reconstruct`, making a re-run idempotent without touching protected code.
+5. **(PowerShell only) `Start-Process -FilePath "npm"` fails outright** (`%1 is not a valid Win32 application`) — a known PowerShell limitation: `Start-Process`'s underlying `CreateProcess` call cannot execute a `.cmd`/`.bat` file directly, unlike PowerShell's own normal command invocation (which is why the earlier bare `npm ci`/`npm run build` calls in the same script worked fine). Fixed by routing the dev-server launch through `Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "npm", "run", "dev", ...`.
+
+**`scripts/run_demo.sh` and `scripts/run_demo.ps1`** (both new, both with the fixes above baked in): each does venv creation, `pip install`, synthetic-clip generation, the full `reconstruct --persist` run (idempotent — clears `outputs/demo` first), starts the API, then `npm ci && npm run build` and the frontend dev server pointed at it, printing real PIDs and correct stop instructions. **Both tested for real, end-to-end, twice each** (once failing on a real bug, once succeeding after the fix):
+- bash: first run failed on the `os.rename` collision (re-run into a dirty `outputs/demo`); after the fix, a clean re-run succeeded fully — API and frontend both confirmed listening on the PIDs the script printed (verified against `netstat -ano`), and `taskkill //F //PID 10620 //PID 10324` confirmed to actually stop both.
+- PowerShell: first run failed on the `Start-Process -FilePath "npm"` bug (reached the frontend step only after the pipeline and API both succeeded — 24 cameras registered, 1723 points, API PID correctly resolved via `Get-NetTCPConnection`); after the fix, a full re-run succeeded end-to-end (frontend built and started, PID 17164) — verified `curl http://localhost:8000/sessions` and `curl http://localhost:5173/` both responded for real, PIDs (11004, 17164) matched `netstat -ano` exactly, and `Stop-Process -Id 11004,17164 -Force` confirmed to actually stop both (ports clear afterward).
+
+**New docs:**
+- `docs/final_demo.md`: exact commands for both scripts, a step-by-step walkthrough of what a reviewer sees at each of the 4 stages (referencing the real Task F browser verification for the viewer description, since a fresh visual check wasn't repeated here), the real pasted `curl` output above, and the known-limitations list (synthetic-only, no ceiling in the demo clip → `wall_extent_estimate` height, non-metric units, the `MAX_PATH` clone-path caveat).
+- `docs/real_video_checklist.md`: what to re-check in this layer once a physical `room.mp4` has been processed — plane counts and `merge_coplanar_planes` thresholds if planes fragment differently than on the easy synthetic clip, scale-relative thresholds (P2's voxel/RANSAC percentages, `scene_graph.py`'s `ADJACENCY_DISTANCE_FRACTION`/`ABOVE_BELOW_EPSILON_FRACTION`), whether "not measurable" (`None`) states actually render correctly in the UI on real data (noting the synthetic clip never exercises this in practice, only the test suite does), the fact that `classify_planes` has no independent gravity/IMU prior and just picks the largest plane as floor, `within_boundary` flag behavior, and frustum-count-vs-frame-count (which trivially matched 24=24 on the synthetic clip and likely won't on real footage).
+
+**`docs/PROJECT_STATE.md` rewritten** (this task): §3 (architecture — full chain including Supabase persistence, now "implemented and opt-in" rather than planned), §5 (source tree — `twin/`, `api/`, `persistence/`, `scripts/`, `supabase/migrations/`, `frontend/src/`, all present), §6 (fixed a stale `source venv/bin/activate` command line), §7 (rewritten as a table with actual per-file `pytest --collect-only` counts: `test_extract_frames.py`=3, `test_reconstruction.py`=2, `test_geometry.py`=6, `test_spatial.py`=43, `test_twin.py`=9, `test_api.py`=27, `test_persistence.py`=26 → 116 backend; frontend `frames.test.ts`+`selectors.test.ts`=16), §8 (artefacts, rewritten by run-directory structure including `persistence/`). §15 deliberately left unchanged — physical-camera verification is still outstanding and still owned by the CV side of the project, exactly as before this task. Removed the one remaining stale "not yet done" note in §16 (boundary polygons/frontend were actually completed in Tasks A/B/F).
+
+**Final full-suite re-run, in the main working copy** (not the clean-checkout clone), after all of the above:
+- `PYTHONPATH=src pytest tests/` → **116 passed, 2 warnings (unrelated `starlette`/`httpx` deprecation notices), 5.68s.**
+- `cd frontend && npm run test` (vitest) → **Test Files 2 passed (2), Tests 16 passed (16), 687ms.**
+
+**Cleanup:** both demo servers (bash and PowerShell runs) were stopped and their ports confirmed free; no orphaned `uvicorn`/`vite`/`node` processes remained. The `C:\vftest` clean-checkout clone was left in place outside the repository (harmless, not committed, not referenced by any script or test) rather than deleted, since nothing in this task required removing it.
+
+**Not done in this task, by design:** no pipeline code, geometry, scene-graph, or query logic was touched — Task H was verification and documentation only, per its own instructions. Physical-camera video processing remains the one genuinely outstanding item (§12/§15), unchanged by this task.
