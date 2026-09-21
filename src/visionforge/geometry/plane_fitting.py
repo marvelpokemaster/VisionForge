@@ -281,6 +281,7 @@ def _estimate_camera_gravity(
 
 def _estimate_manhattan_normal(
     planes: List[Dict[str, Any]],
+    all_points: np.ndarray,
 ) -> Dict[str, Any]:
     """
     Find the dominant unoriented normal direction among near-parallel
@@ -414,7 +415,7 @@ def _estimate_manhattan_normal(
             ),
         )
 
-        score = support_factor
+        score = _architecture_score(fused, planes, all_points)
 
         candidates.append(
             {
@@ -545,6 +546,34 @@ def _estimate_legacy_normal(
         "support_share": support_share,
     }
 
+
+
+def _estimate_architectural_normal(
+    planes: List[Dict[str, Any]],
+    all_points: np.ndarray,
+) -> Dict[str, Any]:
+    if not planes:
+        return {"vector": None, "confidence": 0.0, "available": False, "reason": "No planes"}
+    
+    candidates = []
+    for p in planes:
+        n = _unit(np.asarray(p.get("normal", []), dtype=float))
+        if n is not None:
+            candidates.append(n)
+            candidates.append(-n)
+            
+    if not candidates:
+        return {"vector": None, "confidence": 0.0, "available": False, "reason": "No valid normals"}
+        
+    best = max(candidates, key=lambda v: _architecture_score(v, planes, all_points))
+    score = _architecture_score(best, planes, all_points)
+    
+    return {
+        "vector": best.tolist(),
+        "confidence": _normalise_confidence(0.5 + 0.5 * score),
+        "available": True,
+        "reason": "Highest architectural score",
+    }
 
 def _architecture_score(
     up_axis: np.ndarray,
@@ -702,21 +731,28 @@ def _architecture_score(
         for item in horizontal
     )
 
+    # Reward horizontal planes that are balanced (like a floor and ceiling)
+    # and slightly reward higher overall horizontal support to break ties.
+    if len(horizontal) >= 2:
+        top_support = horizontal[-1][2]
+        balance = float(
+            min(low_support, top_support)
+            / max(low_support, top_support, 1.0)
+        )
+    else:
+        balance = 0.0
+
     support_score = np.clip(
-        low_support
-        / max(
-            1.0,
-            horizontal_support,
-        ),
+        0.5 + 0.4 * balance + 0.1 * (horizontal_support / max(1.0, float(len(all_points)))),
         0.0,
         1.0,
     )
 
     return float(
-        0.45 * floor_side_score
-        + 0.30 * pair_score
-        + 0.15 * wall_score
-        + 0.10 * support_score
+        0.25 * floor_side_score
+        + 0.10 * pair_score
+        + 0.60 * wall_score
+        + 0.05 * support_score
     )
 
 
@@ -1685,9 +1721,15 @@ def classify_planes(
                 camera_data
             )
         ),
+        "architectural_planes": (
+            _estimate_architectural_normal(
+                planes, all_points
+            )
+        ),
+
         "manhattan_planes": (
             _estimate_manhattan_normal(
-                planes
+                planes, all_points
             )
         ),
         "largest_plane_legacy": (
@@ -1762,12 +1804,14 @@ def classify_planes(
     elif (
         floor_candidate_positive is None
         and floor_candidate_negative is not None
+        and floor_candidate_negative.get("has_two_walls", False)
     ):
         up = -up
 
     elif (
         floor_candidate_positive is not None
         and floor_candidate_negative is not None
+        and floor_candidate_negative.get("has_two_walls", False)
     ):
         positive_score = (
             _architecture_score(

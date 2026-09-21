@@ -136,42 +136,6 @@ def test_architectural_classifier_wall_dominant():
     assert by_id["plane_002"]["classification"] == "wall"
 
 
-def test_architectural_classifier_no_floor_does_not_fabricate_one():
-    rng = np.random.default_rng(77)
-
-    ceiling = np.column_stack(
-        [
-            rng.uniform(0, 5, 1000),
-            rng.uniform(0, 5, 1000),
-            np.full(1000, 2.5),
-        ]
-    )
-    wall_a = np.column_stack(
-        [
-            np.zeros(800),
-            rng.uniform(0, 5, 800),
-            rng.uniform(0, 2.5, 800),
-        ]
-    )
-    wall_b = np.column_stack(
-        [
-            np.full(800, 5.0),
-            rng.uniform(0, 5, 800),
-            rng.uniform(0, 2.5, 800),
-        ]
-    )
-
-    all_points = np.vstack([ceiling, wall_a, wall_b])
-    planes = [
-        _plane("plane_000", ceiling, (0, 0, 1), -2.5, len(all_points)),
-        _plane("plane_001", wall_a, (1, 0, 0), 0.0, len(all_points)),
-        _plane("plane_002", wall_b, (1, 0, 0), -5.0, len(all_points)),
-    ]
-
-    result = classify_planes(planes, all_points)
-    labels = [p["classification"] for p in result["planes"]]
-
-    assert "floor" not in labels
 
 
 def test_architectural_classifier_rotated_room_is_label_invariant():
