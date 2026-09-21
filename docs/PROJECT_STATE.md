@@ -31,9 +31,10 @@ The current architecture is a purely Python-based offline and live-tracking pipe
   - `src/visionforge/geometry/`: Point cloud cleaning, RANSAC plane extraction, room modeling (P2).
   - `src/visionforge/spatial/`: Scene graph generation, shared geometry utilities, spatial queries, and Open3D visualization (P3/P4).
   - `src/visionforge/twin/`: `DigitalTwin` data layer — bundles room_model/cameras/scene_graph + provenance into `twin.json` (see §22).
+  - `src/visionforge/api/`: Read-only FastAPI backend over `outputs/<run>/` (see §23).
   - `src/visionforge/live/`: OpenCV KLT + 5-point algorithm visual odometry (P4).
-- **Data Flow:** Video -> Frames -> Features -> Sparse Cloud -> Planar Geometry -> JSON Scene Graph -> `twin.json` -> Digital Twin Viewer.
-- **Dependencies:** `opencv-python`, `numpy`, `open3d`, `pycolmap`, `pytest`.
+- **Data Flow:** Video -> Frames -> Features -> Sparse Cloud -> Planar Geometry -> JSON Scene Graph -> `twin.json` -> API -> Digital Twin Viewer.
+- **Dependencies:** `opencv-python`, `numpy`, `open3d`, `pycolmap`, `pytest`, `fastapi`, `uvicorn`, `httpx` (test client).
 - **CLI Entry Point:** `src/visionforge/cli.py`
 - **Android/Mobile Components:** None currently exist.
 - **Supabase Integration:** MCP server configured in the developer environment, but **zero** integration exists in the actual source code.
@@ -89,6 +90,7 @@ Based on the repository, these commands currently function:
 - **Run offline reconstruction pipeline:** `python -m visionforge.cli reconstruct --video <path_to_mp4> [--output <dir>] [--no-viewer] [--input-type synthetic|real]` — writes `run_status.json` and, as its last step, `twin.json` into `<dir>`.
 - **(Re)build a digital twin from an existing run:** `python -m visionforge.cli twin build --run-dir <dir>`
 - **Run live webcam tracking demo:** `python -m visionforge.cli live`
+- **Run the read-only API server:** `uvicorn visionforge.api.app:app --reload` (reads `outputs/` by default; set `VISIONFORGE_OUTPUTS_ROOT` to point elsewhere). See §23.
 
 ## 7. Tests & Verification
 
@@ -319,3 +321,19 @@ Notable honest details from the synthetic-clip run: `adjacent_to` distances are 
 }
 ```
 Note: `stage_status` above doesn't include `"twin": "success"` — `twin.json` is built from `run_status.json` as it exists *at the moment of the build*, which is necessarily before that same build's own completion gets recorded a moment later. Not a bug: re-running `twin build` afterward (or reading `run_status.json` directly) shows `"twin": "success"` too, as confirmed by the standalone `twin build` run above.
+
+## 23. Session Log — 2026-09-21 (cont.): Task E — read-only FastAPI backend
+
+**New module `src/visionforge/api/`:**
+- `store.py`: `SessionStore(outputs_root)` maps session ids to run directories. `list_sessions()` merges two sources — auto-discovered subdirectories of `outputs_root` that look like a real run dir (`p2/room_model.json` or `twin.json` present), and explicit registrations via `register(run_dir, session_id=None)`, which can point at any directory on disk (matching "list/create sessions **from a run directory**" — the caller supplies the directory, the same trust level as already running `visionforge reconstruct --output <any path>`). No persistence beyond an in-memory dict — Task G adds the Supabase-backed version.
+- `app.py`: `create_app(outputs_root=None)` (factory, so tests can point it at `tmp_path`; defaults to `$VISIONFORGE_OUTPUTS_ROOT` or `"outputs"`). Endpoints, all read-only against `outputs/<run>/`:
+  - `GET /sessions`, `POST /sessions` (`{run_dir, id?}` → 201 or 400 if the directory doesn't exist), `GET /sessions/{id}` — each returns `{id, run_dir, provenance}` via `DigitalTwin.build_from_run_dir`.
+  - `GET /sessions/{id}/room_model`, `/scene_graph`, `/cameras`, `/twin` — raw JSON, 404 if the underlying file doesn't exist for that session.
+  - `GET /sessions/{id}/measurements` → `SpatialQueryEngine(scene_graph).get_room_dimensions()`.
+  - `POST /sessions/{id}/query` with `{method, params}` **or** `{question}`. Method dispatch goes through an explicit `ALLOWED_QUERY_METHODS` allowlist (not a bare `getattr` on the request string) so a request can never reach a private method or unrelated attribute of `SpatialQueryEngine` — an OWASP-relevant guard, not just a style choice. Bad params surface as 400 (a `TypeError` from the call is caught), not a 500.
+  - `GET /sessions/{id}/cloud` → `sparse_cloud.ply` as `FileResponse`; `GET /sessions/{id}/planes/{plane_id}` → that plane's PLY. `plane_id` is validated (`_validate_id_component`: rejects `/`, `\`, `..`) before being joined onto a filesystem path, so a crafted plane id can't escape `p2/planes/` — checked directly with a URL-encoded `../../../etc/passwd` id in tests.
+- Added `fastapi`, `uvicorn`, `httpx` (needed by Starlette's `TestClient`) to `requirements.txt`, installed in this environment.
+
+**Tests added (`tests/test_api.py`, 21 new, total 83):** a `run_dir` fixture builds a full synthetic run directory in `tmp_path` (room_model with 4 planes, a real camera via `build_scene_graph`, a stub PLY, `run_status.json`) and a `client` fixture wraps it in `TestClient(create_app(outputs_root=tmp_path))`. Covers: auto-discovery, explicit registration of a directory outside the outputs root, 404 on an unknown session, 400 on registering a directory that doesn't exist, every GET endpoint's content, query-by-method (with and without params), query-by-question (including the unsupported case coming back as a normal 200 with `supported: false`, not an error), the method allowlist rejecting both a dunder (`__class__`) and a nonexistent method name, invalid kwargs producing 400 not 500, file-serving for both the cloud and a per-plane PLY (byte-for-byte against the source file), 404 for a missing plane, and the path-traversal id rejected. `pytest tests/`: 83/83 green.
+
+**Verified against the real synthetic-clip run** (`outputs/final_demo`, via `create_app(outputs_root="outputs")` + `TestClient`, not just the test fixture): `GET /sessions` found `final_demo`; `GET /sessions/final_demo` returned the same provenance as `twin.json` (including `"twin": "success"` in `stage_status`, since this run had already completed); `GET /measurements` returned all four fields with their `method`; `POST /query` with `{"question": "How far is the camera from the nearest wall?"}` and with `{"method": "get_camera_trajectory"}` both returned real, non-fabricated answers (`camera_024`, distance `3.67`; 24 cameras, `path_length 14.28`); `GET /cloud` served the real 25,883-byte `sparse_cloud.ply`; `GET /twin` returned the same five top-level keys as the file on disk.

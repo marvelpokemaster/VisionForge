@@ -4,3 +4,6 @@ pytest
 pillow
 pycolmap
 open3d
+fastapi
+uvicorn
+httpx
