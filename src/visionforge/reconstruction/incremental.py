@@ -38,12 +38,13 @@ def run_incremental_sfm(image_dir: Path, output_dir: Path) -> Dict[str, Any]:
         cameras = []
         for image_id, image in rec.images.items():
             cam = rec.cameras[image.camera_id]
-            
+            cam_from_world = image.cam_from_world()
+
             cameras.append({
                 "id": image_id,
                 "name": image.name,
-                "rotation_quat": image.cam_from_world.rotation.quat.tolist(),
-                "translation": image.cam_from_world.translation.tolist(),
+                "rotation_quat": cam_from_world.rotation.quat.tolist(),
+                "translation": cam_from_world.translation.tolist(),
                 "camera_model": cam.model.name,
                 "camera_params": cam.params.tolist()
             })

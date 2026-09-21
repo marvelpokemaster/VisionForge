@@ -149,3 +149,29 @@ The next major architectural phase is the Android client:
 
 ## 15. Recommended Next Task
 **NEXT AI TASK:** Execute the unified offline pipeline (`visionforge reconstruct`) against a real indoor smartphone video (`data/input/room.mp4`), document the actual failure points/successes, and fix any immediate classical CV pipeline crashes before beginning Android integration.
+
+## 16. Session Log — 2026-09-21: CLI pipeline fix + real-artifact verification
+
+**Scope:** Pre-Task-A preparation for the Spatial Intelligence + Digital Twin chain (Geometry → Room Model → Scene Graph → Spatial Queries → Digital Twin → API → Viewer → Supabase).
+
+**Bugs found and fixed in `visionforge reconstruct` (`src/visionforge/cli.py`):**
+- P0 (`extract_frames`) was invoked with positional args; the module requires `--input`/`--output`. Fixed.
+- P1 (`reconstruction.pipeline`) was invoked with positional args; the module requires `--frames-dir`/`--output`. Fixed.
+- CLI looked for the sparse cloud at `p1/sparse_cloud.ply`; P1 actually writes it to `p1/reconstruction/sparse_cloud.ply`. Fixed.
+- No subprocess return-code checks — a failed P0/P1/P2 stage was silently ignored. Fixed: every stage now aborts with a clear error on non-zero exit.
+- A dummy 1000-point random point cloud was silently substituted whenever P1 failed, and the CLI still reported success. **Removed entirely** — a missing cloud is now a hard, honest failure with a message pointing at the real cause (insufficient camera parallax).
+- Added `--output <dir>` (was hardcoded to `outputs/final_demo`) and `--no-viewer` (skip the blocking Open3D window) flags to the `reconstruct` subcommand.
+
+**Bug found and fixed in `src/visionforge/reconstruction/incremental.py`:** on `pycolmap` >= 3 (installed: 4.2.0), `Image.cam_from_world` is an instance method, not a property. `image.cam_from_world.rotation.quat` crashed with an `AttributeError` the first time a reconstruction actually succeeded. This was never caught by `tests/test_reconstruction.py` because that test's synthetic fixture is a pure 2D translation (planar-scene degeneracy for `pycolmap.incremental_mapping`), which yields 0 reconstructions and never exercises this code path. Fixed by calling `image.cam_from_world()`.
+
+**Real test artifact:** No real phone video existed in the repo. Generated `data/input/room.mp4` (gitignored, not committed) via a from-scratch pure-OpenCV perspective-warp rasterizer (`gen_room_video2.py`, kept in the session scratchpad, not the repo) — a textured 6-face box room rendered from 24 camera poses that dolly sideways while smoothly tilting from floor-level to ceiling-level, giving genuine translation and parallax (no ML, no Open3D scene renderer — Open3D's `OffscreenRenderer` was tried first and produced all-black frames in this environment even for a canonical sphere test; documented and abandoned rather than debugged further, per guidance to not chase obscure environment-specific issues).
+
+**Ran the fixed pipeline end-to-end** (`visionforge reconstruct --video data/input/room.mp4 --output outputs/final_demo --no-viewer`), with real (non-fabricated) results at every stage:
+- P0: 24 frames extracted.
+- P1: two-view stage found 646/664 keypoints, 298 Lowe matches, 258 geometric inliers, 134 triangulated points. Incremental SfM registered all 24 cameras and triangulated 1692 3D points (`p1/reconstruction/sparse_cloud.ply`, `cameras.json` — real quaternions/translations/SIMPLE_RADIAL params, confirming the `cam_from_world()` fix works).
+- P2: cleaned to 1457 points, found 4 real RANSAC planes — classified `{floor: 2, wall: 1, unknown: 1, ceiling: 0}`. Note: two of the four planes were both classified `floor` (near-identical centroids) — the real floor was likely split into two RANSAC segments by the existing classification thresholds; this is pre-existing P2 classification behavior, not a bug introduced here, and per the hard rules P2's RANSAC/classification logic was not touched.
+- `scale.metric_available: false` (correctly honest — no reference distance was supplied, so `room.length/width/height/floor_area` are in arbitrary reconstruction units, not meters).
+- Scene graph: 5 nodes, 10 edges (`contains`, `perpendicular_to`, `adjacent_to`, `parallel_to`) generated correctly from the real room model.
+- `pytest tests/` remained green (6/6) throughout.
+
+**Not yet done (deferred to Task A onward):** room_model.json plane entries still only carry `id/type/equation/normal/support/centroid` — no boundary polygon, extent, area, or per-plane PLY path yet. `scene_graph.py`'s `adjacent_to` is still the pre-existing centroid-distance-<10.0 heuristic. No `tests/test_spatial.py` yet. No frontend exists anywhere in the repo (confirmed via search — no `package.json`/Vite anywhere); it will be created under `frontend/` only when Task F is reached.
