@@ -29,9 +29,10 @@ The current architecture is a purely Python-based offline and live-tracking pipe
   - `src/visionforge/video/`: Frame extraction (P0).
   - `src/visionforge/reconstruction/`: Feature matching, epipolar geometry, PyCOLMAP incremental SfM (P1).
   - `src/visionforge/geometry/`: Point cloud cleaning, RANSAC plane extraction, room modeling (P2).
-  - `src/visionforge/spatial/`: Scene graph generation, spatial queries, and Open3D visualization (P3/P4).
+  - `src/visionforge/spatial/`: Scene graph generation, shared geometry utilities, spatial queries, and Open3D visualization (P3/P4).
+  - `src/visionforge/twin/`: `DigitalTwin` data layer — bundles room_model/cameras/scene_graph + provenance into `twin.json` (see §22).
   - `src/visionforge/live/`: OpenCV KLT + 5-point algorithm visual odometry (P4).
-- **Data Flow:** Video -> Frames -> Features -> Sparse Cloud -> Planar Geometry -> JSON Scene Graph -> Digital Twin Viewer.
+- **Data Flow:** Video -> Frames -> Features -> Sparse Cloud -> Planar Geometry -> JSON Scene Graph -> `twin.json` -> Digital Twin Viewer.
 - **Dependencies:** `opencv-python`, `numpy`, `open3d`, `pycolmap`, `pytest`.
 - **CLI Entry Point:** `src/visionforge/cli.py`
 - **Android/Mobile Components:** None currently exist.
@@ -85,7 +86,8 @@ src/visionforge/
 ## 6. Current CLI / Commands
 Based on the repository, these commands currently function:
 - **Run automated tests:** `source venv/bin/activate && PYTHONPATH=src pytest tests/`
-- **Run offline reconstruction pipeline:** `python -m visionforge.cli reconstruct --video <path_to_mp4>`
+- **Run offline reconstruction pipeline:** `python -m visionforge.cli reconstruct --video <path_to_mp4> [--output <dir>] [--no-viewer] [--input-type synthetic|real]` — writes `run_status.json` and, as its last step, `twin.json` into `<dir>`.
+- **(Re)build a digital twin from an existing run:** `python -m visionforge.cli twin build --run-dir <dir>`
 - **Run live webcam tracking demo:** `python -m visionforge.cli live`
 
 ## 7. Tests & Verification
@@ -108,6 +110,8 @@ Based on the repository, these commands currently function:
 - `p2/planes/<plane_id>.ply`: Each plane's own inlier point cloud, exported individually.
 - `scene_graph.json`: Nodes and edges representing semantic relationships (e.g., floor is perpendicular to wall).
 - `statistics.json`: Contains retention ratios, plane counts, resolved scale-relative thresholds, and processing times.
+- `run_status.json`: `{input_type, video, stages: {<stage>: "success"|"failed"}}`, written incrementally by `cli.py` after every stage.
+- `twin.json`: A single self-contained bundle (room_model + cameras + scene_graph + provenance, with the sparse cloud referenced by path, never embedded) a frontend can load without touching the other files. See §22.
 
 ## 9. Known Problems / Limitations
 - **No Physical-Camera Video Verification:** The pipeline has strictly been tested on synthetic data — a hand-built synthetic point cloud, and a synthetic rendered video (`data/input/synthetic_box_room.mp4`). No physical-camera video has been run through it yet. Real-world motion blur, textureless walls, and sensor noise are untested.
@@ -277,3 +281,39 @@ Notable honest details from the synthetic-clip run: `adjacent_to` distances are 
 **Tests:** `tests/test_geometry.py` — two new tests calling `align_and_measure_room` directly (bypassing RANSAC randomness via hand-built plane dicts, like the existing merge tests): a floor+wall-no-ceiling case asserting `height_method == "wall_extent_estimate"`, and a floor+ceiling case asserting `height_method == "floor_to_ceiling"`. `tests/test_spatial.py` — a new `floor_and_walls_no_ceiling_room_model` fixture and `test_room_height_method_wall_extent_estimate_without_ceiling`, confirming the method survives the full `build_scene_graph` → `SpatialQueryEngine` path; the existing `box_room_model` fixture (floor+ceiling+walls) and its exact-equality dimension test were updated to include the new method fields (`"floor_to_ceiling"` for height, `"floor_extent"` for length/width/area). `pytest tests/`: 54/54 green.
 
 **Verified on the synthetic clip:** re-ran `visionforge reconstruct` on `data/input/synthetic_box_room.mp4` — `room["height"]` now reports `{"value": 6.72, "metric": false, "units": "reconstruction_units", "method": "wall_extent_estimate"}`, correctly flagging it as the weaker estimate (this clip has no detected ceiling, only 2 walls). `length`/`width`/`floor_area` all report `"method": "floor_extent"`.
+
+## 22. Session Log — 2026-09-21 (cont.): Task D — digital twin data layer
+
+**New module `src/visionforge/twin/digital_twin.py`:** `DigitalTwin.build_from_run_dir(run_dir)` loads `p2/room_model.json`, `p1/reconstruction/cameras.json`, `scene_graph.json`, and (as a path reference only, never embedded) `p1/reconstruction/sparse_cloud.ply` from a run directory, plus `run_status.json` if present. Any missing source is `None` (or, for the sparse cloud path, `None`) — never fabricated. Builds a `provenance` dict with `run_dir`, `source_files` (each path relative to `run_dir`, POSIX-style for portability), `stage_status` (from `run_status.json["stages"]`, `{}` if the file doesn't exist), `input_type` (from `run_status.json["input_type"]`, defaulting to `"unknown"` — never guessed as synthetic or real), `scale` (copied from `room_model["scale"]`), and `measurement_methods` (the four `*_method` fields from §21, read off `room_model["room"]`). `to_dict()`/`from_dict()`/`save()`/`load()` round-trip the whole object to/from a single `twin.json`; `__eq__` compares by `to_dict()`.
+
+**`cli.py`:**
+- `reconstruct` gained `--input-type {synthetic,real}` (optional; written as `"unknown"` into `run_status.json` if omitted — the CLI itself writes the default, per the requirement, not just `DigitalTwin`).
+- `cmd_reconstruct` now tracks stage status in a `status` dict, persisted via `_write_run_status` to `run_status.json` after every stage (including on failure, before `sys.exit(1)`) — this is "whatever the CLI records" that `DigitalTwin` later reads back; a run that crashed mid-pipeline leaves an accurate partial status, not a stale or missing one.
+- `[6/6]` (new, was `[5/5]`): builds the twin via `DigitalTwin.build_from_run_dir(out_dir)` and saves `twin.json` as the last step, after the scene graph and query demo, before the (optional) viewer launch.
+- New `twin build --run-dir <dir>` subcommand (`cmd_twin_build`): rebuilds `twin.json` from an existing run directory independently of `reconstruct`, printing the resulting provenance.
+
+**Tests added (`tests/test_twin.py`, 8 new, total 62):** a `full_run_dir` fixture writes all four sources plus `run_status.json` into `tmp_path`; tests cover loading every source, exact `source_files`/`stage_status` provenance, `input_type`/`scale` provenance, the four `measurement_methods`, `input_type` defaulting to `"unknown"` when `run_status.json` is absent, every field coming back `None` (not fabricated) on a completely empty run directory, the **round-trip test** (`build_from_run_dir` → `save` → `load` → `== ` the original, by `__eq__` and by every field individually), and a dedicated check that `twin.json` embeds `room_model`/`cameras`/`scene_graph` in full while `sparse_cloud_path` stays a path string with no `"points"` key anywhere in the file. `pytest tests/`: 62/62 green.
+
+**Verified on the synthetic clip:** ran `visionforge reconstruct --video data/input/synthetic_box_room.mp4 --output outputs/final_demo --no-viewer --input-type synthetic` end-to-end (`[6/6] Building Digital Twin (twin.json)... Digital twin saved to outputs\final_demo\twin.json`), and separately re-ran `visionforge twin build --run-dir outputs/final_demo` standalone to confirm it works independently of `reconstruct`. `twin.json` (87 KB — the room model, 24 cameras, and a 29-node scene graph, but not the multi-hundred-KB point cloud) provenance:
+```json
+{
+  "run_dir": "...VisionForge\\outputs\\final_demo",
+  "source_files": {
+    "room_model": "p2/room_model.json",
+    "cameras": "p1/reconstruction/cameras.json",
+    "scene_graph": "scene_graph.json",
+    "sparse_cloud": "p1/reconstruction/sparse_cloud.ply"
+  },
+  "stage_status": {
+    "p0_frame_extraction": "success", "p1_reconstruction": "success",
+    "p2_room_geometry": "success", "scene_graph": "success"
+  },
+  "input_type": "synthetic",
+  "scale": { "metric_available": false, "scale_factor": 1.0 },
+  "measurement_methods": {
+    "length_method": "floor_extent", "width_method": "floor_extent",
+    "height_method": "wall_extent_estimate", "floor_area_method": "floor_extent"
+  }
+}
+```
+Note: `stage_status` above doesn't include `"twin": "success"` — `twin.json` is built from `run_status.json` as it exists *at the moment of the build*, which is necessarily before that same build's own completion gets recorded a moment later. Not a bug: re-running `twin build` afterward (or reading `run_status.json` directly) shows `"twin": "success"` too, as confirmed by the standalone `twin build` run above.
