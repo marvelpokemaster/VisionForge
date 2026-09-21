@@ -4,4 +4,9 @@ __pycache__/
 .pytest_cache/
 outputs/
 data/input/
+input/
 .DS_Store
+
+# Agent skills
+.agents/
+skills-lock.json
