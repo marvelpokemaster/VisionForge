@@ -7,10 +7,12 @@ export interface RoomMeasurementsResponse {
   floor_area: Measurement | null;
 }
 
-// Always same-origin "/api/...", proxied by Vite's dev server (see
-// vite.config.ts) to the FastAPI backend -- the frontend never hardcodes a
-// host, per the task requirement.
-const API_BASE = "/api";
+// Web/dev: same-origin "/api/...", proxied by Vite's dev server (see
+// vite.config.ts) to the FastAPI backend.
+// Native Android (Capacitor): there is no dev server to proxy through, so
+// we point directly at the backend's reachable URL, configured via env var
+// at build time (see .env.production).
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
