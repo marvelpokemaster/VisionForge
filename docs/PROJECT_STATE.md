@@ -62,3 +62,14 @@ The project is strictly focused on classical CV logic and the Python backend. An
 *   **To run tests:** `source venv/bin/activate && PYTHONPATH=src pytest tests/`
 *   **To run pipeline:** `source venv/bin/activate && PYTHONPATH=src python -m visionforge.cli reconstruct --input data/input/room.mp4 --output outputs/`
 *   **Dependencies:** Controlled via `requirements.txt`.
+
+## 9. Update — 2026-10-16: Phase 3 step 1, live classical tracking on a video file (branch `live-tracking`)
+
+Supersedes §2 "Live Mode" and §4 above. Details and all measured numbers: `docs/live_tracking.md`; session log: `docs/PROJECT_HISTORY.md` §27.
+
+*   **Live Tracking (`src/visionforge/live/`)** — **IMPLEMENTED, TESTED/VERIFIED on the synthetic clip only.** Keyframe-based monocular tracker: parallax-gated two-keyframe initialisation (essential matrix, `USAC_ACCURATE`), per-frame `solvePnPRansac` against the map (scale anchored to the first keyframe pair, not guessed per frame), new points only at keyframes with cheirality / reprojection / angle checks and widest-baseline re-triangulation, explicit `INITIALIZING | TRACKING | LOST` state with `None` poses while LOST and re-initialisation into a new unstitched segment. Intrinsics from a COLMAP `cameras.json` or a documented guess (focal = max(w, h)). Classical CV only.
+*   **Export contract unchanged:** `p1/reconstruction/{sparse_cloud.ply, cameras.json}` in the exact `incremental.py` format (PINHOLE, one camera per keyframe) + `tracking_report.json`; P2 → scene graph → twin → API → frontend run on it unchanged via the shared `cli._run_geometry_scene_graph_twin()`.
+*   **CLI:** `python -m visionforge.cli live --video <mp4> --output <dir> [--intrinsics-from <cameras.json>] [--no-gui] [--max-frames N]`; no args = webcam demo. `scripts/compare_trajectories.py` gives the sim(3)-aligned trajectory RMSE between two `cameras.json`; `scripts/synthetic_clip_gt_cameras.py` writes the synthetic clip's true camera path.
+*   **Tests:** 145 backend (`pytest tests -q`, `pytest.ini` sets `pythonpath = src` so `PYTHONPATH=src` is no longer needed) + 16 frontend.
+*   **Measured (synthetic clip):** 24 frames → 22 keyframes, 87.5 % TRACKING, 0 LOST episodes, 842 map points, 0.36 px mean reprojection RMS; trajectory vs COLMAP 2.4 % of extent, vs ground truth 0.21 % (COLMAP itself: 2.41 %); P2 finds the same 3 planes (floor 1, wall 2) as the COLMAP run.
+*   **Still true / not solved:** no physical-camera footage has ever been processed (`data/input/room.mp4` absent); no bundle adjustment, loop closure or relocalisation — drift accumulates; scale arbitrary; the frontend frustum reads `camera_params` in SIMPLE_RADIAL order (cosmetic for PINHOLE). Webcam/phone streaming is step 2+.
