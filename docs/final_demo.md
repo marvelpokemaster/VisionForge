@@ -116,6 +116,26 @@ its real relations, camera frusta with real, distinct orientations are
 strung along an orange trajectory line, and a "synthetic input — not
 physical-camera footage" banner is visible the whole time.
 
+## Running the Android app
+
+The Capacitor app in `frontend/android` calls the same FastAPI backend.
+
+- **Bind the backend to all interfaces**, or the emulator/phone can't reach it:
+  `uvicorn visionforge.api.app:app --host 0.0.0.0 --port 8000`.
+- **Emulator:** the Android emulator reaches the host PC at `10.0.2.2`, which is
+  what `frontend/.env.production` sets (`VITE_API_BASE_URL=http://10.0.2.2:8000`).
+- **Physical phone:** replace that with the PC's LAN IP (e.g.
+  `http://192.168.1.20:8000`, from `ipconfig`); the phone must be on the same
+  network and the Windows firewall must allow port 8000.
+- The URL is baked in at build time, so after changing it re-run
+  `npm run build && npx cap sync android` in `frontend/`.
+- `capacitor.config.ts` sets `server.androidScheme: 'http'` so the app is served
+  from `http://localhost`; with the default `https://localhost` the WebView
+  blocks the `http://` API call as mixed content and the backend logs nothing.
+- **Verify connectivity first:** open Chrome inside the emulator and load
+  `http://10.0.2.2:8000/sessions` — it should return the sessions JSON. If it
+  doesn't, the problem is the network/backend binding, not the app.
+
 ## Known limitations
 
 - **Synthetic input only.** Every verification in this repository — every
