@@ -77,7 +77,7 @@ The replacement is a keyframe-based monocular visual odometry:
   wall and translating parallel to it will stay INITIALIZING. That is intended.
 * **Every frame of a 2 fps clip is a keyframe.** The synthetic clip moves ~0.16 units
   per frame, far above the 20 px keyframe parallax, so 22 of 24 frames became
-  keyframes. At 30 fps the ratio will be very different. Untested.
+  keyframes. At 30 fps (same path, 360 frames) it is 32 of 360 — see §6.
 * The frontend's frustum sizing (`frontend/src/lib/frustum.ts`) reads
   `camera_params` as `[f, cx, cy, ...]` (SIMPLE_RADIAL layout). The live export is
   `PINHOLE` `[fx, fy, cx, cy]`, so the drawn frustum's aspect is wrong (cosmetic;
@@ -215,9 +215,21 @@ Ground truth = the camera path `scripts/generate_synthetic_clip.py` renders
 All units are each reconstruction's own arbitrary scale, so absolute numbers are not
 comparable across columns; the ratios and the plane counts / classifications are.
 The live map is sparser (842 vs 1705 points, each point observed by at most a few
-keyframes with no BA) and yields **the same three planes with the same
-classification** — floor + two walls, no ceiling, exactly like the COLMAP-based
-result (the clip never looks at the ceiling long enough for either).
+keyframes with no BA) and yields the same three planes with the same labels as the
+COLMAP-based result.
+
+**But the labels are wrong in every column, COLMAP included** (found in the 30 fps
+follow-up, §6, by mapping each plane into the ground-truth frame): the plane P2 calls
+`floor` — 1022 points for COLMAP, 604 for live — has normal (0, 0, −1) at z ≈ −3 in
+the generator's coordinates, i.e. it is the **far wall**; the two `wall` planes are the
+real side walls x = ±3. No floor plane is detected in any run: only 59 (COLMAP) / 75
+(live) of the cloud points lie within 0.15 units of the true floor, versus 1356 / 621 on
+the far wall, because the clip sees the floor only at grazing angles. P2's
+`classify_planes` then takes the largest plane as the floor
+(`docs/real_video_checklist.md` §4 warned exactly this), so every downstream
+`room.length/width/height` number for this clip is measured against the wrong
+surface. This is pre-existing P2 behaviour on this clip, not introduced by the live
+tracker, and it is not fixed in this step — but it is now proven rather than suspected.
 
 ### Unit-test fixture (box room, 30-frame dolly with small yaw/pitch, 0.5 px noise, oracle tracking)
 
@@ -247,11 +259,65 @@ python scripts/compare_trajectories.py --live outputs/final_demo --live-offset 1
 pytest tests -q            # pytest.ini sets pythonpath = src
 ```
 
-## 6. Real footage
+## 6. 30 fps follow-up — same path, 360 frames (`data/input/synthetic_box_room_30fps.mp4`)
+
+`python scripts/generate_synthetic_clip.py --output data/input/synthetic_box_room_30fps.mp4 --frames 360 --fps 30`
+renders the **same camera path** (the generator's `linspace` over the frame count) at
+30 fps; `scripts/synthetic_clip_gt_cameras.py --frames 360` gives its ground truth.
+Run: `visionforge live --video data/input/synthetic_box_room_30fps.mp4 --output outputs/live_synth_30 --no-gui --input-type synthetic`.
+
+| | 2 fps clip (24 frames) | **30 fps clip (360 frames)** |
+|---|---|---|
+| keyframes | 22 (91.7 % of frames) | **32 (8.9 % of frames)**: 0, 19, 34, 48, 61, 73, 85, 96, … 343, 357; gaps 10–15 frames |
+| states | INIT 3 / TRACKING 21 / LOST 0 → 87.5 % | INIT 19 / **TRACKING 341** / LOST 0 → **94.7 %** |
+| LOST episodes | 0 | 0 |
+| map size | 842 | 897 |
+| mean reprojection RMS | 0.365 px | 0.506 px |
+| wall time | 0.7 s total | 4.9 s total, **13.6 ms/frame wall**; `process_frame` mean 11.9 ms, median 10.7, p95 30.7, max 40.3 |
+| keyframe vs non-keyframe cost | – | **keyframes 31.4 ms, other frames 10.1 ms; 16 frames > 33 ms, all 16 keyframes** |
+| sim(3) RMSE vs ground truth | 0.0076 (0.21 % of extent) | **0.0653 (1.82 % of extent 3.580)**, median 0.061, max 0.102 |
+| P2 planes | 3 | 4 on the first P2 run, 3 on a re-run of P2 on the same cloud (RANSAC is randomised) |
+| P2 labels | floor 1, wall 2 (see §4: "floor" = far wall) | run 1: floor 1, wall 3; run 2: floor 1, ceiling 1, wall 1 — the far wall (565 pts) labelled `wall`, the side walls labelled `floor` / `ceiling` |
+
+Readings:
+
+* **The keyframe parallax gate throttles.** 32 keyframes for 360 frames, spaced
+  10–15 frames = the ~20 px median parallax at this speed; the gate is not firing per
+  frame. Locked in by `test_30fps_resampled_path_keyframes_are_a_small_fraction_of_frames`:
+  the unit fixture's path resampled to 360 frames (oracle tracking) gives 13 keyframes
+  (3.6 %), 344/360 TRACKING, 0 LOST, 0.24 % RMSE; the real KLT on rendered dots gives
+  13 keyframes, 343/360 TRACKING, 0.45 %. (The test asserts ≤ 10 % keyframes, ≥ 90 %
+  TRACKING, no LOST, < 2 % RMSE.)
+* **Per-frame budget.** Non-keyframes average 10.1 ms (LK forward+backward on ~500
+  features + PnP) — inside the 33 ms live budget at 800×600 on this machine. Keyframes
+  average 31.4 ms and are the only frames over 33 ms (16 of 32), because they add
+  grid re-detection (`goodFeaturesToTrack` with a mask) and widest-baseline
+  re-triangulation. Not optimised in this step; the obvious levers are a cheaper
+  detector (FAST) and triangulating only the tracks whose angle grew.
+* **Accuracy is worse at 30 fps on the textured clip (1.82 % vs 0.21 %) but not on
+  the fixture (0.24 % oracle / 0.45 % dots at 360 frames vs 0.5 % / 0.1 % at 30).**
+  So the keyframe rate itself is not the cause. The residual profile is bowed (0.10
+  at the first keyframe, 0.04 in the middle, 0.08 at the end) and the map is much
+  noisier in depth: only 110 of 897 points lie within 0.15 units of the far wall,
+  versus 621 of 842 at 2 fps. Working hypothesis, not verified: KLT drift on the
+  textured frames — a feature tracked for 100+ frames walks off its original point,
+  and widest-baseline re-triangulation pairs that drifted position with its exact
+  first-keyframe position. The oracle (identity tracking) and the crisp rendered dots
+  have no such drift. Candidate fixes for a later step: cap track age / verify long
+  tracks against their keyframe patch, or re-detect on every keyframe and retire
+  old tracks.
+* **P2 labelling is unstable on this cloud**: two P2 runs on the identical
+  `sparse_cloud.ply` gave {floor 1, wall 3} and {floor 1, ceiling 1, wall 1}. Together
+  with §4's finding (the "floor" is the far wall in every run), the plane *counts* are
+  reliable here but the *classes* are not — that is P2's up-vector inference, outside
+  this step.
+
+## 7. Real footage
 
 `data/input/room.mp4` does not exist on the development machine, so **nothing above
 says anything about physical-camera video**: motion blur, rolling shutter,
 textureless walls, real lens distortion and a wrong focal guess are all untested.
+(The 30 fps clip in §6 is still the rendered box room, only resampled.)
 `docs/real_video_checklist.md` applies to the live path too, plus: watch
 `lost_episodes` and `segments` (a real walk-through will almost certainly lose
 tracking at least once), and whether initialisation happens at all when the
