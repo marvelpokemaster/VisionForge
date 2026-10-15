@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 import json
 import subprocess
@@ -10,12 +11,28 @@ from visionforge.twin.digital_twin import DigitalTwin
 from visionforge.persistence import get_backend, persist_run
 
 
+class StageError(RuntimeError):
+    """A pipeline stage failed. The CLI turns it into exit code 1 (main());
+    in-process callers (the live session) catch it and record the failure."""
+
+
+def _stage_env() -> dict:
+    """Environment for a `python -m visionforge.<stage>` child: the directory
+    this package lives in is put on PYTHONPATH, so the stage is importable
+    however the parent was started (pytest's pythonpath, uvicorn, a venv
+    without an installed package)."""
+    import visionforge
+    env = os.environ.copy()
+    src_dir = str(Path(visionforge.__file__).resolve().parents[1])
+    env["PYTHONPATH"] = src_dir + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    return env
+
+
 def _run_stage(cmd, description):
     print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, env=_stage_env())
     if result.returncode != 0:
-        print(f"Error: {description} failed with exit code {result.returncode}.")
-        sys.exit(1)
+        raise StageError(f"{description} failed with exit code {result.returncode}.")
 
 
 def _write_run_status(out_dir: Path, status: dict):
@@ -134,8 +151,7 @@ def _run_geometry_scene_graph_twin(out_dir: Path, status: dict, p1_dir: Path, fi
     if not room_model_file.exists():
         status["stages"]["scene_graph"] = "failed"
         _write_run_status(out_dir, status)
-        print("Error: P2 room model missing.")
-        sys.exit(1)
+        raise StageError("P2 room model missing.")
 
     with open(room_model_file, "r") as f:
         room_model = json.load(f)
@@ -314,19 +330,23 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "reconstruct":
-        cmd_reconstruct(args)
-    elif args.command == "live":
-        cmd_live(args)
-    elif args.command == "twin":
-        if args.twin_command == "build":
-            cmd_twin_build(args)
+    try:
+        if args.command == "reconstruct":
+            cmd_reconstruct(args)
+        elif args.command == "live":
+            cmd_live(args)
+        elif args.command == "twin":
+            if args.twin_command == "build":
+                cmd_twin_build(args)
+            else:
+                twin_parser.print_help()
+        elif args.command == "persist":
+            cmd_persist(args)
         else:
-            twin_parser.print_help()
-    elif args.command == "persist":
-        cmd_persist(args)
-    else:
-        parser.print_help()
+            parser.print_help()
+    except StageError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
