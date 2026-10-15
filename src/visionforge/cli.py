@@ -90,8 +90,33 @@ def cmd_reconstruct(args):
     status["stages"]["p1_reconstruction"] = "success"
     _write_run_status(out_dir, status)
 
+    room_model = _run_geometry_scene_graph_twin(out_dir, status, p1_dir, first_step=3, total_steps=6)
+
+    if args.persist:
+        print("Persisting session...")
+        backend = get_backend()
+        summary = persist_run(backend, out_dir.name, out_dir)
+        print(f"Persisted: {', '.join(summary['saved'])}")
+
+    print("\nOffline construction complete.")
+
+    if not args.no_viewer:
+        print("Launching Digital Twin Viewer...")
+        geometries = create_digital_twin(str(p1_cloud), room_model)
+        launch_viewer(geometries)
+
+
+def _run_geometry_scene_graph_twin(out_dir: Path, status: dict, p1_dir: Path, first_step: int, total_steps: int) -> dict:
+    """The stages downstream of a P1-format reconstruction
+    (p1/reconstruction/sparse_cloud.ply + cameras.json): P2 room geometry,
+    scene graph, query demo, twin.json. Shared by `reconstruct` (offline
+    COLMAP P1) and `live` (live tracker export) so both produce identical
+    run directories. Returns the loaded room model."""
+    p1_cloud = p1_dir / "reconstruction" / "sparse_cloud.ply"
+    step = first_step
+
     # Run P2 (Room Geometry)
-    print("[3/6] Computing Room Geometry (P2)...")
+    print(f"[{step}/{total_steps}] Computing Room Geometry (P2)...")
     p2_dir = out_dir / "p2"
     _run_stage(
         [sys.executable, "-m", "visionforge.geometry.pipeline",
@@ -100,9 +125,10 @@ def cmd_reconstruct(args):
     )
     status["stages"]["p2_room_geometry"] = "success"
     _write_run_status(out_dir, status)
+    step += 1
 
     # Final Phase (Scene Graph)
-    print("[4/6] Generating Spatial Scene Graph...")
+    print(f"[{step}/{total_steps}] Generating Spatial Scene Graph...")
     room_model_file = p2_dir / "room_model.json"
     if not room_model_file.exists():
         status["stages"]["scene_graph"] = "failed"
@@ -124,9 +150,10 @@ def cmd_reconstruct(args):
     print(f"Scene graph saved to {out_dir / 'scene_graph.json'}")
     status["stages"]["scene_graph"] = "success"
     _write_run_status(out_dir, status)
+    step += 1
 
     # Queries
-    print("[5/6] Spatial Queries Demo...")
+    print(f"[{step}/{total_steps}] Spatial Queries Demo...")
     sqe = SpatialQueryEngine(sg)
     print(f" - Room Dimensions: {sqe.get_room_dimensions()}")
     floor_area = sqe.get_floor_area()
@@ -137,29 +164,79 @@ def cmd_reconstruct(args):
     nearest_wall = sqe.get_nearest_wall_to_camera()
     if nearest_wall:
         print(f" - Camera distance to nearest wall: {nearest_wall['value']:.3f} {nearest_wall['units']} ({nearest_wall['wall_id']})")
+    step += 1
 
     # Digital Twin
-    print("[6/6] Building Digital Twin (twin.json)...")
+    print(f"[{step}/{total_steps}] Building Digital Twin (twin.json)...")
     _build_and_save_twin(out_dir, status)
     print(f"Digital twin saved to {out_dir / 'twin.json'}")
-
-    if args.persist:
-        print("Persisting session...")
-        backend = get_backend()
-        summary = persist_run(backend, out_dir.name, out_dir)
-        print(f"Persisted: {', '.join(summary['saved'])}")
-
-    print("\nOffline construction complete.")
-
-    if not args.no_viewer:
-        print("Launching Digital Twin Viewer...")
-        geometries = create_digital_twin(str(p1_cloud), room_model)
-        launch_viewer(geometries)
+    return room_model
 
 
 def cmd_live(args):
-    from visionforge.live.tracker import run_live_tracker
-    run_live_tracker()
+    from visionforge.live.intrinsics import CameraIntrinsics
+    from visionforge.live.runner import run_live_tracker, run_source
+
+    if args.video is None and args.output is None and args.intrinsics_from is None:
+        run_live_tracker()  # webcam demo, as before
+        return
+
+    print("==================================================")
+    print(" VisionForge: Live Classical Tracking")
+    print("==================================================")
+    source = 0
+    if args.video is not None:
+        video_path = Path(args.video)
+        if not video_path.exists():
+            print(f"Error: {video_path} not found.")
+            sys.exit(1)
+        source = str(video_path)
+
+    intrinsics = None
+    if args.intrinsics_from:
+        intrinsics = CameraIntrinsics.from_cameras_json(args.intrinsics_from)
+        print(f"Using COLMAP intrinsics from {args.intrinsics_from}")
+    else:
+        print("No --intrinsics-from given: focal will be GUESSED as max(w, h) at the image centre.")
+
+    total_steps = 5 if args.output else 1
+    print(f"[1/{total_steps}] Tracking {'webcam' if source == 0 else source}...")
+    try:
+        tracker = run_source(source, intrinsics=intrinsics, max_frames=args.max_frames,
+                             gui=not args.no_gui, log_every=1 if args.no_gui else 10)
+    except RuntimeError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+
+    if not args.output:
+        print(json.dumps(tracker.report(), indent=2))
+        return
+
+    out_dir = Path(args.output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    status = {
+        "input_type": args.input_type or "unknown",
+        "video": "webcam" if source == 0 else str(source),
+        "mode": "live",
+        "stages": {},
+    }
+    report = tracker.export(out_dir, video=status["video"])
+    print(f"Tracking report: frames={report['frames']} keyframes={report['n_keyframes']} "
+          f"states={report['state_counts']} lost_episodes={len(report['lost_episodes'])} "
+          f"map={report['map_size']} mean_rms={report['mean_reprojection_rms']} "
+          f"intrinsics={report['intrinsics_source']}")
+    print(f"Wrote {out_dir / 'tracking_report.json'} and p1/reconstruction/{{sparse_cloud.ply, cameras.json}}")
+    if report["n_keyframes"] == 0:
+        status["stages"]["live_tracking"] = "failed"
+        _write_run_status(out_dir, status)
+        print("Error: the tracker never initialised (no keyframes), so there is no map to build geometry from. "
+              "The input needs real camera translation (parallax); a static shot or pure pan never initialises.")
+        sys.exit(1)
+    status["stages"]["live_tracking"] = "success"
+    _write_run_status(out_dir, status)
+
+    _run_geometry_scene_graph_twin(out_dir, status, out_dir / "p1", first_step=2, total_steps=total_steps)
+    print("\nLive construction complete.")
 
 
 def cmd_twin_build(args):
@@ -205,7 +282,18 @@ def main():
                                   "(Supabase if SUPABASE_URL/SUPABASE_KEY are set, else outputs/ JSON).")
 
     # Live command
-    live_parser = subparsers.add_parser("live", help="Run the live camera digital twin mode")
+    live_parser = subparsers.add_parser("live", help="Live classical tracking: webcam demo (no args) or a video file")
+    live_parser.add_argument("--video", default=None, help="Video file to track (default: webcam 0)")
+    live_parser.add_argument("--output", default=None,
+                             help="Run directory to export into (p1/reconstruction/*, tracking_report.json), then run "
+                                  "P2 geometry, scene graph and twin.json exactly like `reconstruct`")
+    live_parser.add_argument("--intrinsics-from", default=None,
+                             help="A P1 cameras.json (e.g. outputs/final_demo/p1/reconstruction/cameras.json) whose "
+                                  "COLMAP camera model/params give the intrinsics; otherwise focal = max(w, h) is guessed")
+    live_parser.add_argument("--no-gui", action="store_true", help="Headless: no OpenCV window")
+    live_parser.add_argument("--max-frames", type=int, default=None, help="Stop after N frames")
+    live_parser.add_argument("--input-type", choices=["synthetic", "real"], default=None,
+                             help="Recorded in run_status.json / twin.json provenance (default 'unknown')")
 
     # Twin command
     twin_parser = subparsers.add_parser("twin", help="Digital twin data layer commands")

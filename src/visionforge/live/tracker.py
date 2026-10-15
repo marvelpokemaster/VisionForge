@@ -261,6 +261,15 @@ class LiveTracker:
     def map_size(self) -> int:
         return len(self._seg.map_points) if self._seg is not None else 0
 
+    def tracked_points(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Current feature positions (N,2) and a bool mask of which ones are
+        associated with a map point. For display only."""
+        if not self._tracks:
+            return np.zeros((0, 2), np.float32), np.zeros((0,), bool)
+        pts = np.array([tr.pt for tr in self._tracks], dtype=np.float32)
+        mapped = np.array([tr.map_id is not None for tr in self._tracks], dtype=bool)
+        return pts, mapped
+
     def process_frame(self, frame: np.ndarray, frame_index: int) -> FrameResult:
         gray = frame if frame.ndim == 2 else cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
