@@ -184,7 +184,8 @@ export interface SceneGraph {
 export type InputType = "synthetic" | "real" | "unknown";
 
 export interface Provenance {
-  run_dir: string;
+  /** null for a live twin_update (nothing on disk yet). */
+  run_dir: string | null;
   source_files: {
     room_model: string | null;
     cameras: string | null;
@@ -200,6 +201,17 @@ export interface Provenance {
     height_method: string | null;
     floor_area_method: string | null;
   };
+  // Present only on twins pushed by WS /live/{id} (docs/live_tracking.md §9).
+  live?: boolean;
+  session_id?: string;
+  frames?: number;
+  keyframes?: number;
+  map_size?: number;
+  segment?: number;
+  fit_index?: number | null;
+  /** Why the incremental geometry fitted nothing (e.g. too few points). */
+  reason?: string | null;
+  intrinsics_source?: string;
 }
 
 export interface Twin {

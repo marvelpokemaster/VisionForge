@@ -12,7 +12,7 @@ export interface RoomMeasurementsResponse {
 // Native Android (Capacitor): there is no dev server to proxy through, so
 // we point directly at the backend's reachable URL, configured via env var
 // at build time (see .env.production).
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
+export const API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
