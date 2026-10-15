@@ -485,3 +485,40 @@ def test_real_klt_tracker_on_rendered_dots():
     kf_idx = [kf.frame_index for kf in seg.keyframes]
     res = align_and_evaluate(np.array([kf.center for kf in seg.keyframes]), gt[kf_idx])
     assert res.rmse < 0.10 * res.reference_extent, (res.rmse, res.reference_extent)
+
+
+# ------------------------------------------------- segment helpers / map cap
+def test_segment_cameras_and_points_match_export_files(tmp_path):
+    from visionforge.live.tracker import segment_cameras, segment_points
+    tracker, _ = run_sequence(translating_path())
+    seg = tracker.exported_segment()
+    tracker.export(tmp_path)
+    cams_file = json.loads((tmp_path / "p1" / "reconstruction" / "cameras.json").read_text())
+    assert segment_cameras(seg, INTR) == cams_file
+    xyz, colors = segment_points(seg)
+    lines = (tmp_path / "p1" / "reconstruction" / "sparse_cloud.ply").read_text().splitlines()
+    body = lines[lines.index("end_header") + 1:]
+    assert len(body) == len(xyz) == len(seg.map_points)
+    file_xyz = np.array([[float(v) for v in l.split()[:3]] for l in body])
+    file_rgb = np.array([[int(v) for v in l.split()[3:6]] for l in body])
+    assert np.allclose(file_xyz, xyz) and np.array_equal(file_rgb, colors)
+    assert colors.dtype == np.uint8 and (colors[:, 0] == colors[:, 1]).all()
+
+
+def test_max_map_points_caps_the_map_without_dropping_tracked_points():
+    cfg = TrackerConfig(max_map_points=150)
+    tracker, results = run_sequence(translating_path(), config=cfg)
+    seg = tracker.exported_segment()
+    # the cap is enforced when a keyframe is created and can only be exceeded by points still
+    # being tracked (never dropped): at every keyframe map_size <= max(cap, live tracks)
+    assert all(r.map_size <= max(150, r.n_tracked) for r in results if r.is_keyframe)
+    assert len(seg.map_points) <= max(150, len(tracker._tracks))
+    # the cap bites: the map sits exactly at the cap for a stretch, where uncapped it kept growing
+    assert sum(r.map_size == 150 for r in results) >= 3
+    assert max(r.map_size for r in results) < 276
+    # the points still tracked by live features are all present in the map
+    tracked_ids = {tr.map_id for tr in tracker._tracks if tr.map_id is not None}
+    assert tracked_ids <= set(seg.map_points)
+    # and the uncapped run really would have exceeded the cap
+    uncapped, _ = run_sequence(translating_path())
+    assert len(uncapped.exported_segment().map_points) > 150

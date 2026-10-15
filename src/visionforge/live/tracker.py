@@ -87,6 +87,13 @@ class TrackerConfig:
     keyframe_min_gap: int = 1             # frames since the last keyframe
     keyframe_tracked_fraction: float = 0.6
     keyframe_min_parallax_px: float = 20.0
+    # --- map size cap (long live sessions) ---
+    # None = unbounded (the CLI default). When set, after each keyframe the
+    # OLDEST map points that no live feature track still observes are
+    # dropped until the segment's map is at or below the cap. Nothing is
+    # invented: a dropped point was measured, it is just no longer kept.
+    # Points still tracked are never dropped (PnP needs them).
+    max_map_points: Optional[int] = None
 
 
 @dataclass
@@ -229,6 +236,34 @@ def triangulate_checked(K: np.ndarray, R1: np.ndarray, t1: np.ndarray, R2: np.nd
 
     accept = finite & (d1 > 0) & (d2 > 0) & (e1 <= reproj_px) & (e2 <= reproj_px) & (angle >= min_angle_deg)
     return X, accept, err, angle
+
+
+def segment_cameras(segment: Segment, intrinsics: CameraIntrinsics) -> List[dict]:
+    """One cameras.json entry per keyframe of ``segment``, in the P1 format
+    reconstruction/incremental.py writes: id (1-based ordinal), name
+    (frame_<video index>), rotation_quat [x,y,z,w] of cam_from_world,
+    translation, camera_model PINHOLE, camera_params [fx, fy, cx, cy]."""
+    params = intrinsics.pinhole_params()
+    return [{
+        "id": i + 1,
+        "name": f"frame_{kf.frame_index:06d}",
+        "rotation_quat": rotation_matrix_to_quat_xyzw(kf.R),
+        "translation": [float(v) for v in kf.t],
+        "camera_model": "PINHOLE",
+        "camera_params": params,
+    } for i, kf in enumerate(segment.keyframes)]
+
+
+def segment_points(segment: Segment) -> Tuple[np.ndarray, np.ndarray]:
+    """The segment's map as (xyz (N,3) float64, colors (N,3) uint8 gray
+    replicated), in map-id order — exactly what export() writes to
+    sparse_cloud.ply."""
+    if not segment.map_points:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.uint8)
+    mps = list(segment.map_points.values())
+    xyz = np.array([mp.xyz for mp in mps], dtype=np.float64)
+    colors = np.array([[mp.color] * 3 for mp in mps], dtype=np.uint8)
+    return xyz, colors
 
 
 # ----------------------------------------------------------------------------
@@ -483,6 +518,13 @@ class LiveTracker:
                         mp.kf_a, mp.kf_b, mp.angle_deg = first_ord, new_ord, float(ang)
         seg.keyframes[-1].n_map_tracked = sum(1 for tr in self._tracks if tr.map_id is not None)
         self._finish_keyframe(gray, frame_index, kf_ordinal=new_ord)
+        if cfg.max_map_points is not None and len(seg.map_points) > cfg.max_map_points:
+            tracked_ids = {tr.map_id for tr in self._tracks if tr.map_id is not None}
+            for mid in sorted(seg.map_points):  # oldest first
+                if len(seg.map_points) <= cfg.max_map_points:
+                    break
+                if mid not in tracked_ids:
+                    del seg.map_points[mid]
 
     def _finish_keyframe(self, gray: np.ndarray, frame_index: int, kf_ordinal: int) -> None:
         """Re-detect features to keep coverage and re-anchor every track's
@@ -571,26 +613,14 @@ class LiveTracker:
         rec_dir = run_dir / "p1" / "reconstruction"
         rec_dir.mkdir(parents=True, exist_ok=True)
         seg = self.exported_segment()
-        params = self.intrinsics.pinhole_params()
 
         cameras = []
         points = np.zeros((0, 3))
         colors = None
         if seg is not None:
-            for i, kf in enumerate(seg.keyframes):
-                cameras.append({
-                    "id": i + 1,
-                    "name": f"frame_{kf.frame_index:06d}",
-                    "rotation_quat": rotation_matrix_to_quat_xyzw(kf.R),
-                    "translation": [float(v) for v in kf.t],
-                    "camera_model": "PINHOLE",
-                    "camera_params": params,
-                })
-            if seg.map_points:
-                mps = list(seg.map_points.values())
-                points = np.array([mp.xyz for mp in mps])
-                colors = np.array([[mp.color] * 3 for mp in mps])
-        save_ply(str(rec_dir / "sparse_cloud.ply"), points, colors)
+            cameras = segment_cameras(seg, self.intrinsics)
+            points, colors = segment_points(seg)
+        save_ply(str(rec_dir / "sparse_cloud.ply"), points, colors if len(points) else None)
         with open(rec_dir / "cameras.json", "w") as f:
             json.dump(cameras, f, indent=2)
 
