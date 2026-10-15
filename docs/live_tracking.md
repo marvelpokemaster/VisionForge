@@ -312,6 +312,107 @@ Readings:
   reliable here but the *classes* are not — that is P2's up-vector inference, outside
   this step.
 
+## 8. Incremental geometry (Phase 3 step 3)
+
+Step 2's live session needs P2 on a *growing* cloud, in memory, every few
+seconds. `src/visionforge/geometry/api.py` and `incremental.py` provide that
+without changing a number in the file-based path.
+
+### API
+
+```python
+from visionforge.geometry.api import GeometryOptions, build_room_model
+from visionforge.geometry.incremental import IncrementalRoomModel
+
+res = build_room_model(points, cameras, GeometryOptions(), seed=0)   # points (N,3); cameras = cameras.json list or None
+res.room_model        # the dict room_model.json would contain, byte-for-byte the same structure (incl. ply_path)
+res.plane_inliers     # {plane_id: indices into res.cleaned_points}
+res.statistics        # the statistics.json dict (processing_time_seconds = build time)
+res.cleaned_points    # (M,3) voxel-downsampled + outlier-filtered cloud the planes were fitted to
+
+inc = IncrementalRoomModel(GeometryOptions(), min_points=200, min_new_points=100, min_interval_s=2.0, seed=0)
+r = inc.update(points, cameras, now=t)   # RoomModelResult, or None when gated; inc.latest keeps the last one
+```
+
+`GeometryOptions` mirrors `pipeline.main()`'s CLI arguments with the same
+defaults (asserted by `test_geometry_options_defaults_match_the_cli_parser`).
+`pipeline.main()` is now a thin wrapper: read PLY + cameras → `build_room_model`
+→ write the same nine files (`pointcloud/{raw,cleaned}.ply`, `planes/<id>.ply`,
+`room_model.json`, `visualizations/{detected_planes,coordinate_frame}.ply`,
+`statistics.json`); exit codes and messages unchanged. Only two stdout
+progress lines moved ("Loaded camera poses" now precedes the cloud statistics;
+"Exporting per-plane point clouds" now follows "Measuring room"); nothing
+parses them.
+
+`IncrementalRoomModel.update` re-fits only when the cloud grew by
+≥ `min_new_points` **and** ≥ `min_interval_s` passed since the last fit
+(`now` is injectable); otherwise it returns `None`. Below `min_points` it
+returns an explicit empty result — zero planes, every `room.*` field `null`,
+a `reason` string — never a guess. A re-initialised tracker segment should
+create a new `IncrementalRoomModel` (different frame). An optional
+`prefilter_voxel_size` (incremental only) bounds cost on big clouds; it was not
+needed (see timing).
+
+### Randomness, and how equivalence was proven
+
+The only random step in P2 is Open3D's `PointCloud.segment_plane` RANSAC.
+`seed` (also `--seed` on `geometry.pipeline`, `reconstruct` and `live`) calls
+`o3d.utility.random.seed` + `numpy.random.seed`, as requested — **but Open3D
+0.20's `segment_plane` is not reproducible under that seed**: seeding before
+every call on the same cleaned cloud still gives different models (4 calls →
+3–4 distinct, with and without `OMP_NUM_THREADS=1`; pinned by
+`test_seeded_segment_plane_is_not_reproducible`, which fails loudly if a future
+Open3D becomes deterministic). The cleaning stage *is* deterministic
+(`test_clean_point_cloud_is_deterministic`).
+
+So the equivalence proof is **exact by replay, tolerance with live RANSAC**:
+
+* `tests/fixtures/p2/{final_demo,live_synth_30}/` hold the input PLY +
+  `cameras.json`, the RANSAC draws (model + inlier list of every
+  `segment_plane` call, in order) recorded from one run of the **pre-refactor**
+  `pipeline.main()`, and that run's `room_model.json`, `statistics.json` and
+  file list.
+* `test_build_room_model_equals_prerefactor_output_given_same_ransac_draws`
+  and `test_main_writes_prerefactor_files_given_same_ransac_draws` replay the
+  draws (asserting the same call sequence on clouds of the same sizes) into
+  the new API and the new `main()`: `room_model.json` and `statistics.json`
+  (minus wall time) are **equal to the pre-refactor output, exactly**, and the
+  same nine files are written — on both the COLMAP cloud and the live 30 fps
+  cloud.
+* `test_main_and_build_room_model_agree_to_tolerance_with_real_ransac`: with
+  real RANSAC, `main()` (subprocess), `build_room_model` and the reference agree
+  on plane count, normals (|dot| > 0.995), support (±5 %); plane *types* are
+  only asserted on `final_demo` — on `live_synth_30` they are known to flip
+  between runs (§6).
+
+Before/after on the 2 fps clip, both CLIs run with `--seed 0` (task 5):
+
+| | P1 cloud before vs after | `room_model.json` |
+|---|---|---|
+| `visionforge live --output` | **byte-identical** (`md5 cc7f0f3d…`, the tracker is deterministic) | not byte-identical: same 3 planes, same types, normals within 0.36°, support 605/93/78 vs 604/92/74, room L/W/H 12.485/5.150/4.125 vs 12.482/5.110/4.057 |
+| `visionforge reconstruct` | **different** (COLMAP is not deterministic run to run) | not comparable: the two COLMAP clouds are in different gauges (normals differ by 15–18°); same 3 planes/types, L/W/H 19.76/7.89/6.66 vs 19.94/7.98/6.76 |
+
+Byte-identical `room_model.json` is therefore **not achievable** with Open3D's
+RANSAC; the replay tests are the proof that the refactor changed nothing. The
+one way to get true reproducibility would be a seeded numpy RANSAC behind
+`extract_dominant_planes` — a change to P2's extraction, left to its owner.
+
+### Timing (`build_room_model`, this machine, min of 3)
+
+| cloud | points | cleaned | planes | wall time |
+|---|---|---|---|---|
+| live_synth_30 | 897 | 817 | 4 | **0.014 s** |
+| 10× jittered copies | 8 970 | 3 356 | 4 | **0.040 s** |
+| 50× jittered copies | 44 850 | 5 459 | 4 | **0.070 s** |
+
+(50× breakdown: cleaning 0.013 s → 5 414 points; one `segment_plane` 0.001 s.)
+Far below the 2 s bound, so no pre-downsample is needed; `prefilter_voxel_size`
+exists but is off by default (at 50× with 2× the default voxel it drops the fit
+to 1 576 points / 0.030 s). **Refresh interval for step 2:** compute is not
+the limit — a 1 s `min_interval_s` with `min_new_points=100` costs < 0.1 s per
+refresh even at 45 k points; the real constraint will be the JSON size sent
+to the client, not P2.
+
 ## 7. Real footage
 
 `data/input/room.mp4` does not exist on the development machine, so **nothing above
