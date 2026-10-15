@@ -92,6 +92,7 @@ def compare_trajectories(live_cams: List[dict], ref_cams: List[dict], ref_step: 
         "rmse_fraction_of_extent": res.rmse_fraction_of_extent,
         "reference_extent": res.reference_extent,
         "scale": res.sim3.scale,
+        "sim3": {"scale": res.sim3.scale, "R": res.sim3.R.tolist(), "t": res.sim3.t.tolist()},
         "max_residual": float(res.residuals.max()),
         "median_residual": float(np.median(res.residuals)),
         "per_camera_residual": {int(i): float(r) for i, r in zip(common, res.residuals)},

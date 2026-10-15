@@ -251,6 +251,7 @@ class LiveTracker:
         self._ref_frame_index: Optional[int] = None
         self._next_map_id = 0
         self.results: List[FrameResult] = []
+        self.timing: Optional[dict] = None  # set by the runner: wall time, ms per frame
 
     # ------------------------------------------------------------------ public
     @property
@@ -558,6 +559,7 @@ class LiveTracker:
                 "exported": exported is s,
             } for s in self.segments],
             "config": asdict(self.config),
+            "timing": self.timing,
         }
 
     def export(self, run_dir: Path, video: Optional[str] = None) -> dict:

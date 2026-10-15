@@ -55,6 +55,7 @@ def run_source(source: Union[int, str], intrinsics: Optional[CameraIntrinsics] =
     t_start = time.time()
     last_t = t_start
     fps = 0.0
+    process_times = []  # seconds spent inside process_frame only (excludes decoding / GUI)
     try:
         while True:
             ret, frame = cap.read()
@@ -68,7 +69,9 @@ def run_source(source: Union[int, str], intrinsics: Optional[CameraIntrinsics] =
                       f"fx={intrinsics.fx:.1f} fy={intrinsics.fy:.1f} cx={intrinsics.cx:.1f} cy={intrinsics.cy:.1f} k1={intrinsics.k1:.5f}")
                 tracker = LiveTracker(intrinsics, config)
 
+            t0 = time.perf_counter()
             result = tracker.process_frame(frame, frame_index)
+            process_times.append(time.perf_counter() - t0)
 
             now = time.time()
             fps = 1.0 / max(now - last_t, 1e-6)
@@ -96,7 +99,26 @@ def run_source(source: Union[int, str], intrinsics: Optional[CameraIntrinsics] =
     if tracker is None:
         raise RuntimeError(f"No frames could be read from {source!r}")
     elapsed = time.time() - t_start
-    print(f"Processed {frame_index} frames in {elapsed:.1f}s ({frame_index / max(elapsed, 1e-6):.1f} fps)")
+    pt = np.array(process_times) * 1000.0
+    is_kf = np.array([r.is_keyframe for r in tracker.results], dtype=bool)
+    tracker.timing = {
+        "wall_time_s": elapsed,
+        "wall_ms_per_frame": 1000.0 * elapsed / max(frame_index, 1),
+        "process_frame_ms_mean": float(pt.mean()) if len(pt) else None,
+        "process_frame_ms_median": float(np.median(pt)) if len(pt) else None,
+        "process_frame_ms_p95": float(np.percentile(pt, 95)) if len(pt) else None,
+        "process_frame_ms_max": float(pt.max()) if len(pt) else None,
+        "keyframe_ms_mean": float(pt[is_kf].mean()) if is_kf.any() else None,
+        "non_keyframe_ms_mean": float(pt[~is_kf].mean()) if (~is_kf).any() else None,
+        "frames_over_33ms": int((pt > 33.0).sum()),
+        "keyframes_over_33ms": int(((pt > 33.0) & is_kf).sum()),
+    }
+    tm = tracker.timing
+    print(f"Processed {frame_index} frames in {elapsed:.1f}s ({frame_index / max(elapsed, 1e-6):.1f} fps); "
+          f"process_frame: mean {tm['process_frame_ms_mean']:.1f} ms, median {tm['process_frame_ms_median']:.1f} ms, "
+          f"p95 {tm['process_frame_ms_p95']:.1f} ms, max {tm['process_frame_ms_max']:.1f} ms; "
+          f"keyframes {tm['keyframe_ms_mean'] or 0:.1f} ms vs other frames {tm['non_keyframe_ms_mean'] or 0:.1f} ms; "
+          f"{tm['frames_over_33ms']} frames > 33 ms ({tm['keyframes_over_33ms']} of them keyframes)")
     return tracker
 
 

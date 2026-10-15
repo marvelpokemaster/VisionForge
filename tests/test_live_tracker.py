@@ -68,15 +68,20 @@ def look_at(eye, target, up=(0, 1, 0)):
 EYE_Y, EYE_Z, PITCH_DOWN_DEG = 0.9, 2.4, 8.0  # low camera pitched down: floor points span depth ~1.5-5.4
 
 
-def translating_path(n=30, step=0.08):
+def translating_path(n=30, step=0.08, duration=None):
     """Dolly in x with a small, varying yaw/pitch, looking towards the far
     wall with the floor in the lower half of the frame (so the view holds a
-    real spread of depths, not one dominant plane)."""
+    real spread of depths, not one dominant plane). The path is parametrised
+    by "time" u in original-frame units: u = i by default; with ``duration``
+    the SAME path (u from 0 to duration) is resampled with n frames, e.g.
+    translating_path(360, duration=29) is translating_path(30) at 12x the
+    frame rate."""
     poses = []
     for i in range(n):
-        x = -1.2 + step * i
-        yaw = math.radians(5.0 * math.sin(i / 6.0))
-        pitch = math.radians(-PITCH_DOWN_DEG + 3.0 * math.cos(i / 5.0))
+        u = i if duration is None else i * duration / (n - 1)
+        x = -1.2 + step * u
+        yaw = math.radians(5.0 * math.sin(u / 6.0))
+        pitch = math.radians(-PITCH_DOWN_DEG + 3.0 * math.cos(u / 5.0))
         eye = (x, EYE_Y, EYE_Z)
         target = (x + 4.0 * math.sin(yaw), EYE_Y + 4.0 * math.sin(pitch), EYE_Z - 4.0 * math.cos(yaw))
         poses.append(look_at(eye, target))
@@ -440,6 +445,29 @@ def test_export_without_initialisation_writes_empty_but_valid_files(tmp_path):
     rep = tracker.export(tmp_path)
     assert json.loads((tmp_path / "p1" / "reconstruction" / "cameras.json").read_text()) == []
     assert rep["n_keyframes"] == 0 and rep["map_size"] == 0 and rep["exported_segment"] is None
+
+
+def test_30fps_resampled_path_keyframes_are_a_small_fraction_of_frames():
+    """The 30-frame fixture path resampled to 360 frames (the same motion at
+    12x the frame rate, like a 30 fps phone instead of the 2 fps synthetic
+    clip): the keyframe policy must be driven by parallax, not by frame
+    count, so keyframes must stay a small fraction of frames while tracking
+    stays continuous and accurate. Measured: 13 keyframes (3.6 %), 344/360
+    TRACKING, sim(3) RMSE 0.24 % of extent."""
+    poses = translating_path(360, duration=29)
+    assert np.allclose(centers_of(poses)[[0, 359]], centers_of(translating_path(30))[[0, 29]])
+    tracker, results = run_sequence(poses)
+    states = [r.state for r in results]
+    seg = tracker.exported_segment()
+    n_kf = len(seg.keyframes)
+    assert 5 <= n_kf <= 36, n_kf                       # 36 = 10 % of frames; at 2 fps it was 22 of 24
+    assert sum(r.is_keyframe for r in results) == n_kf - 1   # keyframe 0 is the init reference frame
+    assert states.count(TrackState.LOST) == 0
+    assert states.count(TrackState.TRACKING) >= 0.9 * 360
+    gt = centers_of(poses)
+    kf_idx = [kf.frame_index for kf in seg.keyframes]
+    res = align_and_evaluate(np.array([kf.center for kf in seg.keyframes]), gt[kf_idx])
+    assert res.rmse < 0.02 * res.reference_extent, (res.rmse, res.reference_extent)
 
 
 # ------------------------------------------------------- real KLT smoke test
