@@ -246,6 +246,9 @@ def test_main_and_build_room_model_agree_to_tolerance_with_real_ransac(tmp_path,
         assert abs(np.dot(dom_p["normal"], dom_q["normal"])) > 0.999
         assert abs(dom_p["support"] - dom_q["support"]) <= 0.05 * dom_q["support"]
         assert canon(res.room_model["coordinate_system"] or {}).keys() == canon(other["coordinate_system"] or {}).keys()
-        assert res.room_model["room"]["height_method"] == other["room"]["height_method"]
+        if exp["types_stable"]:
+            # the height method follows the labels (floor+ceiling -> floor_to_ceiling, else wall extent),
+            # so it is only stable where the labels are
+            assert res.room_model["room"]["height_method"] == other["room"]["height_method"]
     if exp["types_stable"]:
         assert sorted(p["type"] for p in mine) == sorted(p["type"] for p in ref["planes"])
