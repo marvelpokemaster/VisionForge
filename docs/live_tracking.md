@@ -413,6 +413,99 @@ the limit — a 1 s `min_interval_s` with `min_new_points=100` costs < 0.1 s per
 refresh even at 45 k points; the real constraint will be the JSON size sent
 to the client, not P2.
 
+## 9. Live session protocol (Phase 3 step 2)
+
+`src/visionforge/live/session.py` (`LiveSession`) + `src/visionforge/api/live.py`
+(mounted by `create_app`). A client streams JPEG frames over one WebSocket; the
+server tracks them with `LiveTracker`, re-fits the room model with
+`IncrementalRoomModel` on the **active tracker segment** (in memory:
+`segment_points` / `segment_cameras` → `build_room_model` → `build_scene_graph`
+→ `DigitalTwin.from_parts`), pushes a status per processed frame, and on
+`finish` exports a run directory identical in layout to `visionforge live
+--output`, registered in the `SessionStore` so the REST API and frontend open it
+like any other session.
+
+### Messages
+
+| direction | message | meaning |
+|---|---|---|
+| client → | text `{"width": W, "height": H, "intrinsics": {fx,fy,cx,cy,k1}?}` or `{"intrinsics_from_cameras": [cameras.json entries]}` | optional, before the first frame: frame size and/or intrinsics **for that size** |
+| ← server | text `{"configured": true, "intrinsics": {...}, "processed_size": [w,h]}` | |
+| client → | **binary** JPEG | one frame; the server assigns `frame_index` = frames received so far |
+| ← server | text status (below) | one per **processed** frame (dropped frames get none) |
+| client → | text `{"cmd": "finish"}` | process what is pending, export, build P2/scene graph/twin |
+| ← server | text `{"finished": true, "session_id", "run_dir", "stage_status", "frames", "received", "dropped", "twin_updates"}` then close 1000 | |
+
+Status fields: `session_id, frame_index, state (INITIALIZING|TRACKING|LOST),
+n_tracked, n_inliers, reprojection_rms, is_keyframe, map_size, n_keyframes,
+segment, n_segments, frames, dropped, source_size, processed_size,
+intrinsics_source, pose ({rotation_quat [x,y,z,w] of cam_from_world,
+translation} or null — null whenever not TRACKING, never the last pose),
+twin_update` (a full `DigitalTwin.to_dict()` **only on the frame where the
+incremental geometry re-fitted**, else null).
+
+`GET /live` lists active sessions (`frames`, `dropped`, `twin_updates`,
+`last_status`); `DELETE /live/{id}` closes the socket (1001 "deleted") and
+drops it. A second socket on an active id is accepted and closed with **4409**
+"already active"; an invalid id with 4400.
+
+### Limits and behaviour
+
+* **Downscale:** frames wider than `max_width` (640) are resized before
+  tracking and the intrinsics (given or guessed) are scaled with them; `k1` is
+  unchanged (normalised coordinates). `processed_size` and the exported
+  `tracking_report.json` intrinsics are the scaled ones. The frame size may not
+  change mid-session.
+* **Frames are never stored.** The tracker keeps one previous grayscale frame
+  (KLT needs it); nothing else.
+* **Map cap:** `TrackerConfig.max_map_points` (20 000 for live sessions, unbounded
+  for the CLI): after each keyframe the oldest map points not observed by any live
+  feature track are dropped until the segment is under the cap. Measured points
+  are forgotten, never invented.
+* **Geometry refresh:** `IncrementalRoomModel(min_interval_s=1.0, min_new_points=50,
+  min_points=200)` per segment; a re-fit below `min_points` yields a twin whose
+  `room_model` has zero planes and a `reason` (`p2_room_geometry: "skipped"`).
+* **LOST / re-initialisation:** the status says LOST with `pose: null`; a
+  successful re-initialisation opens a new tracker segment (`segment` increments)
+  and the session starts a **fresh `IncrementalRoomModel`** — points of different
+  segments are never fitted together. On finish the segment with the most keyframes
+  is exported (`tracking_report.segments` lists all).
+* **Backpressure:** the socket task only parks the newest frame; a worker task
+  hands it to a thread (the tracker is CPU-bound, the event loop stays responsive).
+  A frame arriving while one is being processed **replaces** the parked one and
+  `dropped` increments. `finish` first drains what is parked.
+* **finish when nothing initialised:** `run_status.json` gets
+  `live_tracking: "failed"` + an `error`, there is no `p2/`, `cameras.json` is
+  `[]`, and a `twin.json` with `room_model: null` is still written so
+  `GET /sessions/{id}/twin` answers 200 with that provenance (and
+  `/room_model`, `/measurements` 404) — honest, not a 500. If P2 itself fails on a
+  real map, the stage is marked `failed` with the error and the twin says so.
+
+### Measured: `scripts/replay_live.py` against uvicorn (30 fps clip, 10 fps, 640 wide)
+
+```
+$ python scripts/replay_live.py --video data/input/synthetic_box_room_30fps.mp4 --url ws://localhost:8765/live/live_ws_demo --fps 10 --max-width 640
+source 800x600 -> sending 640x480 at 10.0 fps to ws://localhost:8765/live/live_ws_demo
+configured: {"configured":true,"session_id":"live_ws_demo","intrinsics":{"fx":640.0,"fy":640.0,"cx":320.0,"cy":240.0,"k1":0.0,"source":"guess"},"processed_size":[640,480]}
+[    0] INITIALIZING tracked= 210 inliers=   0 rms=    - map=    0 kf=  0 seg=None dropped=0 -
+[    1] INITIALIZING tracked= 210 inliers=   0 rms=    - map=    0 kf=  0 seg=None dropped=0 -
+...
+[   28] TRACKING     tracked= 245 inliers= 199 rms= 0.06 map=  199 kf=  2 seg=0 dropped=0 KF twin_update(planes=0, reason='199 points < min_points=200')
+[   61] TRACKING     tracked= 257 inliers= 215 rms= 0.51 map=  266 kf=  4 seg=0 dropped=0 KF twin_update(planes=3)
+[   90] TRACKING     tracked= 303 inliers= 243 rms= 0.39 map=  328 kf=  6 seg=0 dropped=0 KF twin_update(planes=2)
+...
+[  359] TRACKING     tracked= 344 inliers= 339 rms= 0.54 map=  724 kf= 25 seg=0 dropped=0 -
+sent 360 frames; sending finish
+finished: {"finished": true, "session_id": "live_ws_demo", "run_dir": "outputs\\live_ws_demo", "stage_status": {"live_tracking": "success", "p2_room_geometry": "success", "scene_graph": "success", "twin": "success"}, "frames": 360, "received": 360, "dropped": 0, "twin_updates": 8}
+statuses received: 360, twin updates: 8
+```
+
+360 frames in 40 s wall (paced at 10 fps by the client), 0 dropped, 8 twin
+updates, 25 keyframes, 724 map points at 640×480 (the 800×600 CLI run gave 32 /
+897), finish built `p2/` (3 planes), `scene_graph.json`, `twin.json`. The session
+is then a normal session: `GET /sessions/live_ws_demo/twin` serves it. The first
+twin update at frame 28 reports zero planes with the reason, not a guess.
+
 ## 7. Real footage
 
 `data/input/room.mp4` does not exist on the development machine, so **nothing above
