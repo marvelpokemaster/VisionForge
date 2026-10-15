@@ -19,12 +19,16 @@ a fresh one, so points of different segments are never fitted together.
 """
 from __future__ import annotations
 
+import io
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 import cv2
 import numpy as np
+
+from visionforge.reconstruction.two_view import write_ply
 
 from visionforge.cli import StageError, _build_and_save_twin, _run_geometry_scene_graph_twin, _write_run_status
 from visionforge.geometry.api import GeometryOptions, RoomModelResult
@@ -71,6 +75,9 @@ class LiveSession:
         self.finished = False
         self.run_dir: Optional[Path] = None
         self.stage_status: Dict[str, str] = {}
+        # feed()/finish() run in a worker thread; cloud_ply() is called from
+        # request handlers, so the tracker's map is only read under this lock
+        self.lock = threading.Lock()
 
     # ------------------------------------------------------------ configure
     def configure(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -118,6 +125,24 @@ class LiveSession:
         frame = cv2.imdecode(np.frombuffer(jpeg_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
         if frame is None:
             raise ValueError("could not decode JPEG frame")
+        with self.lock:
+            return self._feed_decoded(frame, int(frame_index), now)
+
+    def cloud_ply(self) -> str:
+        """The ACTIVE segment's current map as ASCII PLY text (the same
+        points export() would write), for the live viewer. Empty PLY when
+        nothing is initialised."""
+        with self.lock:
+            seg = self.tracker.active_segment if self.tracker is not None else None
+            if seg is None:
+                xyz, colors = np.zeros((0, 3)), None
+            else:
+                xyz, colors = segment_points(seg)
+        buf = io.StringIO()
+        write_ply(buf, xyz, colors if len(xyz) else None)
+        return buf.getvalue()
+
+    def _feed_decoded(self, frame: np.ndarray, frame_index: int, now: float) -> Dict[str, Any]:
         h, w = frame.shape[:2]
         if self.tracker is None:
             self._init_tracker(w, h)
@@ -205,7 +230,11 @@ class LiveSession:
         and run P2 -> scene graph -> twin on it. A session that never
         initialised gets run_status live_tracking = "failed", no p2/, and a
         twin.json that says so; the directory is returned either way."""
-        run_dir = Path(outputs_root) / self.session_id
+        with self.lock:
+            return self._finish_locked(Path(outputs_root))
+
+    def _finish_locked(self, outputs_root: Path) -> Path:
+        run_dir = outputs_root / self.session_id
         run_dir.mkdir(parents=True, exist_ok=True)
         status = {
             "input_type": self.input_type,

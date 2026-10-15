@@ -69,7 +69,14 @@ def test_replay_clip_tracks_updates_twin_and_finishes_into_a_session(client, tmp
         ws.send_text(json.dumps({"width": 800, "height": 600}))
         conf = ws.receive_json()
         assert conf["configured"] and conf["intrinsics"]["source"] == "guess" and conf["processed_size"] == [640, 480]
-        statuses = stream(ws, frames)
+        statuses = stream(ws, frames[:200])
+        # the live cloud endpoint serves the active segment's current map as PLY
+        cloud = client.get("/live/replay/cloud")
+        assert cloud.status_code == 200 and cloud.content.startswith(b"ply\nformat ascii 1.0\n")
+        n_vertices = int([l for l in cloud.text.splitlines() if l.startswith("element vertex")][0].split()[-1])
+        assert n_vertices == statuses[-1]["map_size"] > 0
+        assert client.get("/live/nope/cloud").status_code == 404
+        statuses += stream(ws, frames[200:])
         ws.send_text(json.dumps({"cmd": "finish"}))
         done = ws.receive_json()
     states = [s["state"] for s in statuses]

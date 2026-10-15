@@ -29,6 +29,7 @@ import time
 from typing import Any, Dict
 
 from fastapi import APIRouter, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 
 from visionforge.live.session import LiveSession
 
@@ -145,6 +146,17 @@ def _install_rest(app: FastAPI) -> None:
             s["started"] = entry["started"]
             out.append(s)
         return out
+
+    @app.get("/live/{session_id}/cloud")
+    def live_cloud(session_id: str):
+        """The active segment's current map as PLY, so the live viewer can
+        draw points through the same PLY path as a finished session."""
+        entry = app.state.live_sessions.get(session_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"No active live session '{session_id}'")
+        ply = entry["session"].cloud_ply()
+        return Response(content=ply, media_type="application/octet-stream",
+                        headers={"Content-Disposition": f'inline; filename="{session_id}_live.ply"'})
 
     @app.delete("/live/{session_id}")
     async def delete_live(session_id: str):

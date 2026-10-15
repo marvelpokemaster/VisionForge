@@ -118,7 +118,8 @@ def render_frame(eye, target):
     return canvas
 
 
-def generate(output_path: Path, n_frames: int = 24, fps: float = 2.0, save_previews: bool = False) -> None:
+def generate(output_path: Path, n_frames: int = 24, fps: float = 2.0, save_previews: bool = False,
+             fourcc: str = "mp4v") -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     eye_y = 1.4
@@ -132,8 +133,9 @@ def generate(output_path: Path, n_frames: int = 24, fps: float = 2.0, save_previ
         target = np.array([0.0, ty, -0.5])
         frames.append(render_frame(eye, target))
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(str(output_path), fourcc, fps, (W, H))
+    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*fourcc), fps, (W, H))
+    if not writer.isOpened():
+        raise SystemExit(f"OpenCV could not open a VideoWriter for fourcc {fourcc!r} / {output_path.suffix}")
     for frame in frames:
         writer.write(frame)
     writer.release()
@@ -153,9 +155,12 @@ def main():
     parser.add_argument("--fps", type=float, default=2.0, help="Video fps (matches extract_frames.py's default "
                                                                   "target sampling fps, so every frame is extracted)")
     parser.add_argument("--save-previews", action="store_true", help="Also save a few preview PNGs alongside the video")
+    parser.add_argument("--fourcc", default="mp4v",
+                        help="VideoWriter codec (default mp4v = MPEG-4 part 2, which OpenCV reads but browsers do not play; "
+                             "use --fourcc VP80 with a .webm --output for the frontend's file source)")
     args = parser.parse_args()
 
-    generate(Path(args.output), n_frames=args.frames, fps=args.fps, save_previews=args.save_previews)
+    generate(Path(args.output), n_frames=args.frames, fps=args.fps, save_previews=args.save_previews, fourcc=args.fourcc)
 
 
 if __name__ == "__main__":

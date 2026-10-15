@@ -5,26 +5,31 @@ import numpy as np
 from pathlib import Path
 from typing import List, Tuple, Dict, Any
 
+def write_ply(f, points: np.ndarray, colors: np.ndarray = None):
+    """ASCII PLY (x y z [r g b]) to an open text file-like object."""
+    f.write("ply\n")
+    f.write("format ascii 1.0\n")
+    f.write(f"element vertex {len(points)}\n")
+    f.write("property float x\n")
+    f.write("property float y\n")
+    f.write("property float z\n")
+    if colors is not None:
+        f.write("property uchar red\n")
+        f.write("property uchar green\n")
+        f.write("property uchar blue\n")
+    f.write("end_header\n")
+    for i in range(len(points)):
+        p = points[i]
+        if colors is not None:
+            c = colors[i]
+            f.write(f"{p[0]} {p[1]} {p[2]} {int(c[0])} {int(c[1])} {int(c[2])}\n")
+        else:
+            f.write(f"{p[0]} {p[1]} {p[2]}\n")
+
+
 def save_ply(filename: str, points: np.ndarray, colors: np.ndarray = None):
     with open(filename, 'w') as f:
-        f.write("ply\n")
-        f.write("format ascii 1.0\n")
-        f.write(f"element vertex {len(points)}\n")
-        f.write("property float x\n")
-        f.write("property float y\n")
-        f.write("property float z\n")
-        if colors is not None:
-            f.write("property uchar red\n")
-            f.write("property uchar green\n")
-            f.write("property uchar blue\n")
-        f.write("end_header\n")
-        for i in range(len(points)):
-            p = points[i]
-            if colors is not None:
-                c = colors[i]
-                f.write(f"{p[0]} {p[1]} {p[2]} {int(c[0])} {int(c[1])} {int(c[2])}\n")
-            else:
-                f.write(f"{p[0]} {p[1]} {p[2]}\n")
+        write_ply(f, points, colors)
 
 def run_two_view(frame1_path: Path, frame2_path: Path, output_dir: Path) -> Dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
