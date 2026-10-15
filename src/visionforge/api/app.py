@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from visionforge.twin.digital_twin import DigitalTwin
 from visionforge.spatial.queries import SpatialQueryEngine
 from visionforge.api.store import SessionStore
+from visionforge.api.live import install_live_routes
 from visionforge.persistence import get_backend, persist_run
 
 # Vite's default dev server origin. Override with a comma-separated list via
@@ -57,6 +58,7 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
     app = FastAPI(title="VisionForge API", description="Read-only digital twin API, backed by outputs/<run>/ (see Task G for Supabase persistence).")
     app.state.store = store
     app.state.backend = backend
+    install_live_routes(app)  # WS /live/{id}, GET /live, DELETE /live/{id}
 
     cors_origins = [
         o.strip() for o in os.environ.get("VISIONFORGE_CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",") if o.strip()
