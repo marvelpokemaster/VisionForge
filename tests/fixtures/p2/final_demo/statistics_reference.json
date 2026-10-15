@@ -1,0 +1,173 @@
+{
+  "point_cloud": {
+    "raw_points": 1705,
+    "cleaned_points": 1339,
+    "retention_ratio": 0.7853372434017595,
+    "min_bound": [
+      -16.32963752746582,
+      -6.625224590301514,
+      7.226205110549927
+    ],
+    "max_bound": [
+      5.916888236999512,
+      2.377471446990967,
+      20.84954261779785
+    ],
+    "centroid": [
+      -5.74198048385259,
+      -2.1823427006776406,
+      16.47893740617431
+    ],
+    "approx_dimensions": [
+      22.246525764465332,
+      9.00269603729248,
+      13.623337507247925
+    ]
+  },
+  "resolved_thresholds": {
+    "bbox_diagonal": 31.997239204106695,
+    "voxel_size": 0.1599861960205335,
+    "plane_distance_threshold": 0.319972392041067
+  },
+  "geometry": {
+    "num_planes": 3,
+    "classifications": {
+      "floor": 1,
+      "ceiling": 0,
+      "wall": 2,
+      "unknown": 0
+    },
+    "metric_scale_available": false,
+    "up_source": "architectural_planes+largest_plane_legacy",
+    "up_confidence": 0.5719725584859598,
+    "up_sources": {
+      "camera_gravity": {
+        "vector": [
+          0.08123118900463955,
+          -0.9873549338542661,
+          -0.1361312915039392
+        ],
+        "confidence": 0.9882123293385757,
+        "sample_count": 24,
+        "available": true,
+        "coherence": 0.9842831057847676,
+        "agreement_angle_to_final_deg": 86.07976647174318,
+        "agrees_with_final": false
+      },
+      "architectural_planes": {
+        "vector": [
+          0.3427329029327995,
+          0.0879096637835259,
+          -0.9353106693824912
+        ],
+        "confidence": 0.7846301136835118,
+        "available": true,
+        "reason": "Highest architectural score",
+        "agreement_angle_to_final_deg": 0.0,
+        "agrees_with_final": true
+      },
+      "manhattan_planes": {
+        "vector": [
+          -0.9375080899237732,
+          0.036196446009451794,
+          -0.3460757122708314
+        ],
+        "confidence": 0.46835680828284304,
+        "pair_count": 1,
+        "available": true,
+        "support_sum": 234.0,
+        "member_indices": [
+          1,
+          2
+        ],
+        "agreement_angle_to_final_deg": 89.68169427700867,
+        "agrees_with_final": false
+      },
+      "largest_plane_legacy": {
+        "vector": [
+          0.3427329029327995,
+          0.0879096637835259,
+          -0.9353106693824912
+        ],
+        "confidence": 0.879093799682035,
+        "available": true,
+        "plane_id": "plane_000",
+        "support_share": 0.8139904610492846,
+        "agreement_angle_to_final_deg": 0.0,
+        "agrees_with_final": true
+      }
+    }
+  },
+  "room_measurements": {
+    "length": 19.644676490508452,
+    "width": 7.892119082995375,
+    "height": 6.574768117480471,
+    "floor_area": 155.03812621001236,
+    "length_method": "floor_extent",
+    "width_method": "floor_extent",
+    "height_method": "wall_extent_estimate",
+    "floor_area_method": "floor_extent",
+    "bounding_polygon_room": [
+      [
+        -10.447965086014634,
+        -0.9011051652352734
+      ],
+      [
+        -10.14034179702551,
+        -4.0475369816707705
+      ],
+      [
+        -10.13074030425257,
+        -4.091351348430857
+      ],
+      [
+        -8.948465518176144,
+        -4.12968170624712
+      ],
+      [
+        -3.4855139015816334,
+        -4.222083289341433
+      ],
+      [
+        10.065146781290375,
+        -4.130977119201736
+      ],
+      [
+        10.383902197060271,
+        -2.5007011259347
+      ],
+      [
+        10.282823526268363,
+        3.58055891960255
+      ],
+      [
+        10.129202498614601,
+        4.047504346588459
+      ],
+      [
+        9.950298702314083,
+        4.409202456438582
+      ],
+      [
+        -6.009901109199393,
+        4.308549950181351
+      ],
+      [
+        -7.871296075850512,
+        4.282908204998943
+      ],
+      [
+        -9.852998813118615,
+        3.31990762858152
+      ],
+      [
+        -10.131191165328442,
+        2.482248989768843
+      ],
+      [
+        -10.26224761546522,
+        1.5271808347905558
+      ]
+    ]
+  }
+}

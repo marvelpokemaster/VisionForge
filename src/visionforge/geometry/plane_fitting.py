@@ -1452,6 +1452,11 @@ def extract_dominant_planes(
         pcd.points
     )
 
+    # Indices (into the input pcd) of the points still in remaining_pcd, so
+    # each plane can also report its inliers as indices into the input cloud
+    # ("inlier_indices"). Bookkeeping only; the RANSAC calls are unchanged.
+    remaining_idx = np.arange(initial_points)
+
     for i in range(max_planes):
         if (
             len(remaining_pcd.points)
@@ -1512,6 +1517,7 @@ def extract_dominant_planes(
                 ),
                 "centroid": centroid.tolist(),
                 "cloud": inlier_cloud,
+                "inlier_indices": remaining_idx[np.asarray(inliers, dtype=int)],
             }
         )
 
@@ -1521,6 +1527,9 @@ def extract_dominant_planes(
                 invert=True,
             )
         )
+        keep = np.ones(len(remaining_idx), dtype=bool)
+        keep[np.asarray(inliers, dtype=int)] = False
+        remaining_idx = remaining_idx[keep]
 
     return planes
 
@@ -1634,6 +1643,10 @@ def merge_coplanar_planes(
                 combined_cloud
                 + other["cloud"]
             )
+            if "inlier_indices" in base and "inlier_indices" in other:
+                base["inlier_indices"] = np.concatenate(
+                    [base["inlier_indices"], other["inlier_indices"]]
+                )
 
             combined_inliers += int(
                 other["inliers"]

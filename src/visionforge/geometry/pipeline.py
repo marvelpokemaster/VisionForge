@@ -1,3 +1,23 @@
+"""P2 room geometry, file-based CLI.
+
+A thin wrapper around ``geometry/api.py``'s ``build_room_model``: read the
+PLY + cameras.json, build the model in memory, write the same files as
+before. Side effects, in order:
+
+  1. ``<output>/`` created.
+  2. progress lines on stdout (the "Loaded camera poses" line now comes
+     before the cloud statistics instead of after plane extraction; the
+     "Exporting per-plane point clouds..." line now follows "Measuring room";
+     nothing parses these).
+  3. exit 1 with the same messages for an empty cloud, a zero-extent cloud,
+     or a cleaning failure.
+  4. ``pointcloud/raw.ply``, ``pointcloud/cleaned.ply``
+  5. ``planes/<plane_id>.ply`` per merged plane (paths recorded in room_model)
+  6. ``room_model.json``
+  7. ``visualizations/detected_planes.ply`` (if any plane) and
+     ``visualizations/coordinate_frame.ply`` (if a coordinate system was found)
+  8. ``statistics.json`` (``processing_time_seconds`` = whole run incl. writes)
+"""
 import argparse
 import sys
 import json
@@ -6,17 +26,14 @@ import numpy as np
 import open3d as o3d
 from pathlib import Path
 
-from visionforge.geometry.point_cloud import process_point_cloud
-from visionforge.geometry.plane_fitting import (
-    extract_dominant_planes,
-    classify_planes,
-    merge_coplanar_planes,
+from visionforge.geometry.api import (
+    GeometryOptions,
+    PLANE_THRESHOLD_FRACTION,
+    VOXEL_SIZE_FRACTION,
+    build_room_model,
 )
-from visionforge.geometry.room_model import align_and_measure_room, export_plane_plys
-
-
-VOXEL_SIZE_FRACTION = 0.005
-PLANE_THRESHOLD_FRACTION = 0.01
+from visionforge.geometry.point_cloud import write_point_cloud_files
+from visionforge.geometry.room_model import export_plane_plys
 
 
 def _load_camera_data(output_dir: Path, explicit_path: str = None):
@@ -94,7 +111,7 @@ def visualize_results(
         )
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="VisionForge Prototype 2: Room Geometry"
     )
@@ -148,8 +165,29 @@ def main():
         default=None,
         help="Optional path to reconstruction cameras.json",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Seed Open3D's and numpy's RNGs before plane extraction (default: unseeded, as before). "
+             "Note: Open3D 0.20's segment_plane is not reproducible even when seeded; see geometry/api.py.",
+    )
+    return parser
 
-    args = parser.parse_args()
+
+def options_from_args(args) -> GeometryOptions:
+    return GeometryOptions(
+        voxel_size=args.voxel_size,
+        plane_distance_threshold=args.plane_distance_threshold,
+        min_plane_inliers=args.min_plane_inliers,
+        max_planes=args.max_planes,
+        reference_distance=args.reference_distance,
+        reference_reconstruction_distance=args.reference_reconstruction_distance,
+    )
+
+
+def main():
+    args = build_parser().parse_args()
 
     input_path = Path(args.input)
     output_dir = Path(args.output)
@@ -162,147 +200,42 @@ def main():
     if raw_pcd.is_empty():
         print("Error: input point cloud is empty.")
         sys.exit(1)
+    points = np.asarray(raw_pcd.points)
+    colors = np.asarray(raw_pcd.colors) if raw_pcd.has_colors() else None
 
-    bbox = raw_pcd.get_axis_aligned_bounding_box()
-    bbox_diagonal = float(
-        np.linalg.norm(bbox.get_max_bound() - bbox.get_min_bound())
-    )
-    if bbox_diagonal <= 0.0:
-        print("Error: input point cloud has zero spatial extent.")
-        sys.exit(1)
-
-    voxel_size = (
-        args.voxel_size
-        if args.voxel_size is not None
-        else VOXEL_SIZE_FRACTION * bbox_diagonal
-    )
-    plane_distance_threshold = (
-        args.plane_distance_threshold
-        if args.plane_distance_threshold is not None
-        else PLANE_THRESHOLD_FRACTION * bbox_diagonal
-    )
-
-    print(
-        f"Raw cloud bounding-box diagonal: {bbox_diagonal:.4f} "
-        "(reconstruction units)"
-    )
-    print(
-        f"Using voxel_size={voxel_size:.5f}, "
-        f"plane_distance_threshold={plane_distance_threshold:.5f}"
-    )
+    camera_data = _load_camera_data(output_dir, args.cameras)
 
     try:
-        pcd_clean, pc_stats = process_point_cloud(
-            input_path,
-            output_dir,
-            voxel_size=voxel_size,
-        )
+        result = build_room_model(points, camera_data, options_from_args(args), seed=args.seed,
+                                  colors=colors, log=print)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
     except Exception as exc:
         print(f"Error processing point cloud: {exc}")
         sys.exit(1)
 
-    print(
-        f"Cleaned point cloud: {pc_stats['cleaned_points']} / "
-        f"{pc_stats['raw_points']} points retained."
-    )
-
-    all_points = np.asarray(pcd_clean.points)
-
-    print("Extracting dominant planes...")
-    planes = extract_dominant_planes(
-        pcd_clean,
-        distance_threshold=plane_distance_threshold,
-        min_ratio=args.min_plane_inliers,
-        max_planes=args.max_planes,
-    )
-    print(
-        f"Found {len(planes)} dominant plane segments before "
-        "merging coplanar segments."
-    )
-
-    planes = merge_coplanar_planes(
-        planes,
-        distance_threshold=plane_distance_threshold,
-    )
-    print(f"{len(planes)} planes remain after merging coplanar segments.")
-
-    camera_data = _load_camera_data(output_dir, args.cameras)
-
-    print("Classifying planes using architectural constraints...")
-    planes_data = classify_planes(
-        planes,
-        all_points,
-        camera_data=camera_data,
-    )
-
-    coord_sys = planes_data.get("coordinate_system")
-    if coord_sys:
-        print(
-            f"UP source: {coord_sys.get('up_source')} "
-            f"(confidence={coord_sys.get('up_confidence', 0.0):.3f})"
-        )
-        print(
-            "UP sources agreeing with final axis: "
-            f"{coord_sys.get('up_source_agreement', [])}"
-        )
-
-    c_counts = {"floor": 0, "ceiling": 0, "wall": 0, "unknown": 0}
-    for p in planes_data["planes"]:
-        label = p.get("classification", "unknown")
-        c_counts[label] = c_counts.get(label, 0) + 1
-
-    print(f"Classifications: {c_counts}")
+    write_point_cloud_files(output_dir, raw_pcd, result.cleaned_pcd)
 
     print("Exporting per-plane point clouds...")
-    ply_paths = export_plane_plys(planes_data["planes"], output_dir)
-
-    print("Measuring room and exporting model...")
-    room_model = align_and_measure_room(
-        planes_data,
-        ref_distance=args.reference_distance,
-        rec_distance=args.reference_reconstruction_distance,
-        ply_paths=ply_paths,
-    )
+    ply_paths = export_plane_plys(result.planes_data["planes"], output_dir)
+    assert all(result.room_model["planes"][i]["ply_path"] == ply_paths[p["id"]]
+               for i, p in enumerate(result.room_model["planes"]))
 
     with (output_dir / "room_model.json").open("w", encoding="utf-8") as f:
-        json.dump(room_model, f, indent=2)
+        json.dump(result.room_model, f, indent=2)
 
     print("Generating visualizations...")
     visualize_results(
         output_dir,
-        pcd_clean,
-        planes_data,
-        planes_data.get("coordinate_system"),
+        result.cleaned_pcd,
+        result.planes_data,
+        result.planes_data.get("coordinate_system"),
     )
 
     end_time = time.time()
-
-    up_sources = {}
-    if room_model.get("coordinate_system"):
-        up_sources = room_model["coordinate_system"].get("up_sources", {})
-
-    stats = {
-        "point_cloud": pc_stats,
-        "resolved_thresholds": {
-            "bbox_diagonal": bbox_diagonal,
-            "voxel_size": voxel_size,
-            "plane_distance_threshold": plane_distance_threshold,
-        },
-        "geometry": {
-            "num_planes": len(planes),
-            "classifications": c_counts,
-            "metric_scale_available": room_model["scale"]["metric_available"],
-            "up_source": (
-                room_model.get("coordinate_system", {}) or {}
-            ).get("up_source"),
-            "up_confidence": (
-                room_model.get("coordinate_system", {}) or {}
-            ).get("up_confidence"),
-            "up_sources": up_sources,
-        },
-        "room_measurements": room_model["room"],
-        "processing_time_seconds": end_time - start_time,
-    }
+    stats = dict(result.statistics)
+    stats["processing_time_seconds"] = end_time - start_time
 
     with (output_dir / "statistics.json").open("w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2)
