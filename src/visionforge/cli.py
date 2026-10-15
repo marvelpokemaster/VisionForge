@@ -90,7 +90,7 @@ def cmd_reconstruct(args):
     status["stages"]["p1_reconstruction"] = "success"
     _write_run_status(out_dir, status)
 
-    room_model = _run_geometry_scene_graph_twin(out_dir, status, p1_dir, first_step=3, total_steps=6)
+    room_model = _run_geometry_scene_graph_twin(out_dir, status, p1_dir, first_step=3, total_steps=6, seed=args.seed)
 
     if args.persist:
         print("Persisting session...")
@@ -106,7 +106,8 @@ def cmd_reconstruct(args):
         launch_viewer(geometries)
 
 
-def _run_geometry_scene_graph_twin(out_dir: Path, status: dict, p1_dir: Path, first_step: int, total_steps: int) -> dict:
+def _run_geometry_scene_graph_twin(out_dir: Path, status: dict, p1_dir: Path, first_step: int, total_steps: int,
+                                   seed: int = None) -> dict:
     """The stages downstream of a P1-format reconstruction
     (p1/reconstruction/sparse_cloud.ply + cameras.json): P2 room geometry,
     scene graph, query demo, twin.json. Shared by `reconstruct` (offline
@@ -118,11 +119,11 @@ def _run_geometry_scene_graph_twin(out_dir: Path, status: dict, p1_dir: Path, fi
     # Run P2 (Room Geometry)
     print(f"[{step}/{total_steps}] Computing Room Geometry (P2)...")
     p2_dir = out_dir / "p2"
-    _run_stage(
-        [sys.executable, "-m", "visionforge.geometry.pipeline",
-         "--input", str(p1_cloud), "--output", str(p2_dir)],
-        "P2 (Room Geometry)"
-    )
+    p2_cmd = [sys.executable, "-m", "visionforge.geometry.pipeline",
+              "--input", str(p1_cloud), "--output", str(p2_dir)]
+    if seed is not None:
+        p2_cmd += ["--seed", str(seed)]
+    _run_stage(p2_cmd, "P2 (Room Geometry)")
     status["stages"]["p2_room_geometry"] = "success"
     _write_run_status(out_dir, status)
     step += 1
@@ -235,7 +236,8 @@ def cmd_live(args):
     status["stages"]["live_tracking"] = "success"
     _write_run_status(out_dir, status)
 
-    _run_geometry_scene_graph_twin(out_dir, status, out_dir / "p1", first_step=2, total_steps=total_steps)
+    _run_geometry_scene_graph_twin(out_dir, status, out_dir / "p1", first_step=2, total_steps=total_steps,
+                                   seed=args.seed)
     print("\nLive construction complete.")
 
 
@@ -280,6 +282,8 @@ def main():
                              help="Also persist the session (room model, scene graph, twin, measurements, "
                                   "processing status) through the configured PersistenceBackend "
                                   "(Supabase if SUPABASE_URL/SUPABASE_KEY are set, else outputs/ JSON).")
+    rec_parser.add_argument("--seed", type=int, default=None,
+                             help="Seed for the P2 geometry stage's RNGs (default: unseeded, current behaviour)")
 
     # Live command
     live_parser = subparsers.add_parser("live", help="Live classical tracking: webcam demo (no args) or a video file")
@@ -294,6 +298,8 @@ def main():
     live_parser.add_argument("--max-frames", type=int, default=None, help="Stop after N frames")
     live_parser.add_argument("--input-type", choices=["synthetic", "real"], default=None,
                              help="Recorded in run_status.json / twin.json provenance (default 'unknown')")
+    live_parser.add_argument("--seed", type=int, default=None,
+                             help="Seed for the P2 geometry stage's RNGs (default: unseeded, current behaviour)")
 
     # Twin command
     twin_parser = subparsers.add_parser("twin", help="Digital twin data layer commands")
