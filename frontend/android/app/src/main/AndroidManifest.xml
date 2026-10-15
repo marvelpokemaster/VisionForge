@@ -39,4 +39,8 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Live screen: getUserMedia inside the WebView needs the app to hold CAMERA;
+         Capacitor's WebChromeClient requests it at runtime on the first use. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>
