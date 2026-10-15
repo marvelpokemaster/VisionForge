@@ -33,8 +33,49 @@ class DigitalTwin:
         self.sparse_cloud_path = sparse_cloud_path
 
     # ------------------------------------------------------------------
-    # Build from a run directory (p0/p1/p2/scene_graph.json/run_status.json)
+    # Build from in-memory parts (live sessions) or a run directory
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def derived_provenance_fields(room_model: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """The provenance entries that follow from the room model itself:
+        ``scale`` and the four measurement ``*_method`` tags (None when the
+        model has none — never guessed)."""
+        scale = (room_model or {}).get("scale") or {"metric_available": False, "scale_factor": 1.0}
+        room = (room_model or {}).get("room") or {}
+        return {
+            "scale": scale,
+            "measurement_methods": {
+                "length_method": room.get("length_method"),
+                "width_method": room.get("width_method"),
+                "height_method": room.get("height_method"),
+                "floor_area_method": room.get("floor_area_method"),
+            },
+        }
+
+    @classmethod
+    def from_parts(
+        cls,
+        room_model: Optional[Dict[str, Any]],
+        cameras: Optional[List[Dict[str, Any]]],
+        scene_graph: Optional[Dict[str, Any]],
+        provenance: Dict[str, Any],
+        sparse_cloud_path: Optional[str] = None,
+    ) -> "DigitalTwin":
+        """Assemble a twin from parts already in memory (a live session's
+        current segment, or a run directory's files). ``provenance`` is taken
+        as given except that ``scale`` and ``measurement_methods`` are filled
+        from the room model when the caller did not supply them."""
+        prov = dict(provenance)
+        for key, value in cls.derived_provenance_fields(room_model).items():
+            prov.setdefault(key, value)
+        return cls(
+            provenance=prov,
+            room_model=room_model,
+            cameras=cameras,
+            scene_graph=scene_graph,
+            sparse_cloud_path=sparse_cloud_path,
+        )
 
     @classmethod
     def build_from_run_dir(cls, run_dir: Path) -> "DigitalTwin":
@@ -70,15 +111,6 @@ class DigitalTwin:
         # to be either synthetic or real.
         input_type = run_status.get("input_type", "unknown")
 
-        scale = (room_model or {}).get("scale") or {"metric_available": False, "scale_factor": 1.0}
-        room = (room_model or {}).get("room") or {}
-        measurement_methods = {
-            "length_method": room.get("length_method"),
-            "width_method": room.get("width_method"),
-            "height_method": room.get("height_method"),
-            "floor_area_method": room.get("floor_area_method"),
-        }
-
         def rel_if_exists(p: Path) -> Optional[str]:
             return p.relative_to(run_dir).as_posix() if p.exists() else None
 
@@ -92,15 +124,14 @@ class DigitalTwin:
             },
             "stage_status": run_status.get("stages", {}),
             "input_type": input_type,
-            "scale": scale,
-            "measurement_methods": measurement_methods,
         }
+        provenance.update(cls.derived_provenance_fields(room_model))
 
-        return cls(
-            provenance=provenance,
+        return cls.from_parts(
             room_model=room_model,
             cameras=cameras,
             scene_graph=scene_graph,
+            provenance=provenance,
             sparse_cloud_path=rel_if_exists(sparse_cloud_path),
         )
 
