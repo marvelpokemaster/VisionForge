@@ -506,6 +506,115 @@ updates, 25 keyframes, 724 map points at 640×480 (the 800×600 CLI run gave 32 
 is then a normal session: `GET /sessions/live_ws_demo/twin` serves it. The first
 twin update at frame 28 reports zero planes with the reason, not a guess.
 
+## 10. Live screen (Phase 3 steps 4+5)
+
+Route `#/live` (also `/live`) in the React/Capacitor frontend. Files:
+`frontend/src/live/{source,encode,pump,status,wsUrl}.ts`,
+`components/LiveScreen.tsx`, `lib/route.ts` (+ `useRoute.ts`). The existing
+session view is unchanged apart from reading the route and a "● Live tracking"
+button; `Viewer3D` gained one optional prop, `cloudUrl`.
+
+* **Sources** (`source.ts`): `CameraSource` (getUserMedia, rear camera preferred)
+  and `FileSource` (`<input type=file>` → `<video>`); both expose
+  `start() → {width, height}`, `frame()`, `stop()`. No frames are stored.
+* **Pump** (`pump.ts`, pure, tested with fake timers): every `1/fps` (10 fps)
+  it asks the encoder (`encode.ts`: canvas at ≤ 640 px wide, JPEG q 0.7) for a
+  frame and sends it as one binary message, after the `{"width","height"}` text
+  message. It never queues: a tick is skipped and counted when the last send
+  was < 1/fps ago (`rate`), when `ws.bufferedAmount` exceeds one frame's bytes
+  (`buffer`), when an encode is still in flight (`busy`), or when the source
+  has no frame (`no-frame`). Stop sends `{"cmd":"finish"}`; the server's
+  `finished` reply ends the session. A file source stops by itself at its end.
+* **Status reducer** (`status.ts`, pure, tested): state, counts, server
+  `dropped`, client `skippedClient`, measured fps (statuses/s over the last 10),
+  `lastTwin` (a new object only when `twin_update` is non-null — the viewer's
+  rebuild effect keys on it), `twinUpdates`, `lostEpisodes` (start/end frame),
+  segment changes.
+* **Screen**: session id (default `live-<timestamp>`), source selector, Start /
+  Stop, preview, the status strip, a full-width banner — amber INITIALIZING with
+  "translate the camera sideways", green TRACKING, blinking red LOST — and
+  `Viewer3D` fed with `lastTwin` and `cloudUrl = /live/<id>/cloud` (the active
+  segment's current map as PLY, served by the backend so the live points go
+  through the same PLY + `frames.ts` room-frame path as a finished session).
+  "no geometry yet: <reason>" is shown when a twin update has zero planes and a
+  reason. On `finished` the app navigates to `#/session/<id>`.
+* **ws URL** (`wsUrl.ts`, tested): from the same `API_BASE` as `lib/api.ts` —
+  `http://…` → `ws://…`, `https://…` → `wss://…`, relative `/api` →
+  `ws(s)://<page host>/api` (Vite's dev proxy now has `ws: true`). The Android
+  build therefore uses `ws://10.0.2.2:8000/live/<id>` (grep `dist/` for
+  `10.0.2.2:8000` and `wss://` after `npm run build`).
+* **Android**: `CAMERA` permission + `<uses-feature android.hardware.camera
+  required=false>` in the manifest; `androidScheme: 'http'` keeps `ws://` from
+  being mixed content; `npm run build && npx cap sync android` done.
+  **Untested on any emulator or phone** — see `docs/live_android_checklist.md`.
+
+### Desktop verification (real Chrome, DevTools protocol, no extension)
+
+The Claude-in-Chrome extension was not connected, so `scripts/drive_live_ui.py`
+drives a real headless Chrome (fake media device enabled) against the Vite dev
+server (5173, proxying to uvicorn on 0.0.0.0:8000): it selects the source,
+clicks Start, reads the banner / strip / viewer canvas once a second, clicks
+Stop and checks the hand-off. Browsers do not play OpenCV's default `mp4v`
+clips, so the clip is re-rendered as VP8/WebM
+(`generate_synthetic_clip.py --fourcc VP80 --output ….webm`, same frames).
+
+File source (`synthetic_box_room_30fps.webm`), observed per second:
+
+```
+t= 1s INITIALIZING canvas=False | frame 3 tracked 200 inliers 0 map 0 keyframes 0 … skipped 3 5.1 fps twin updates 0 | waiting for the first twin update…
+t= 2s TRACKING     canvas=False | frame 8 tracked 242 inliers 183 map 190 keyframes 2 segment 0 dropped 0 skipped 8 5.0 fps twin updates 1 | no geometry yet: 190 points < min_points=200
+t= 3s TRACKING     canvas=True  | frame 11 tracked 266 inliers 232 map 247 keyframes 3 … twin updates 2
+t= 8s TRACKING     canvas=True  | frame 29 tracked 391 inliers 372 map 566 keyframes 13 … twin updates 6
+t=12s TRACKING     canvas=True  | frame 42 tracked 340 inliers 330 map 694 keyframes 18 … 3.3 fps twin updates 8   (video ended)
+clicked Stop … hash after finish: #/session/live-1792100321625
+session view: selected "live-1792100321625", canvas: true, measurements: Length 4.672 Width 3.803 Height 14.882 (floor_to_ceiling) …
+states seen: ['INITIALIZING', 'TRACKING'] | first viewer canvas at 3.1 s | console errors: []
+```
+
+What rendered (screenshots in `outputs/live_ui/`): the preview showed the
+textured box room playing; the banner went amber INITIALIZING → green
+TRACKING; the strip updated every status; at frame 12 the viewer drew two
+translucent planes (green `plane_000 (floor)`, red `plane_001 (wall)`) with
+labels, the yellow room polygon and the live map as white dots, and at frame 42
+a different set (a large red wall, `plane_002 (floor)`) — i.e. planes really
+are redrawn on each twin update, and P2's label instability (§6) is visible
+live. After Stop the session view opened on the new session with the 3D twin,
+Room Measurements and the provenance footer. uvicorn:
+
+```
+INFO:  "WebSocket /live/live-1792100321625" [accepted]
+INFO:  connection open
+INFO:  "GET /live/live-1792100321625/cloud HTTP/1.1" 200 OK   (×7, one per twin update)
+3 planes remain after merging coplanar segments.
+Classifications: {'floor': 1, 'ceiling': 1, 'wall': 1, 'unknown': 0}
+INFO:  "GET /sessions/live-1792100321625/measurements HTTP/1.1" 200 OK
+INFO:  "GET /sessions/live-1792100321625/twin HTTP/1.1" 200 OK
+INFO:  "GET /sessions/live-1792100321625/cloud HTTP/1.1" 200 OK
+```
+
+Delivered rate: the first run gave 3–5 statuses/s for 10 fps requested. The
+strip's skip breakdown (added for this) showed `busy 11 / rate 46`: the pump's
+rate gate measured from the previous send's *completion*, so a ~50 ms async
+JPEG encode pushed every second tick inside the window — a pump bug, fixed
+(the gate now measures from the tick that captured the previous frame). Re-run:
+**6.0 statuses/s, 64 frames in the 12 s clip, `busy 22 / rate 22 / buffer 0`**
+— the remaining `busy` skips are encodes over 100 ms on headless Chrome's
+SwiftShader renderer; a GPU-backed browser or phone should do better. The
+server never dropped a frame (`dropped 0`) and the file source stopped by
+itself at the end of the clip ("video ended — finishing" → `finished` →
+session view).
+
+Camera source (Chrome's fake device, 640×360): getUserMedia succeeded, statuses
+flowed at ~5/s, the banner stayed **INITIALIZING** for all 64 frames (a fake
+pattern has no parallax — exactly the emulator caveat), Stop → `finished` with
+`live_tracking: failed`, navigation to the session view, which shows the
+honest `GET …/measurements failed: 404` and no geometry. (Follow-up for the
+session view, out of scope here: it loads twin and measurements together, so a
+failed live session shows the error instead of the twin's `stage_status`.)
+
+No physical webcam is attached to this PC, so a real camera was not tried.
+**Emulator and phone are untested.**
+
 ## 7. Real footage
 
 `data/input/room.mp4` does not exist on the development machine, so **nothing above
