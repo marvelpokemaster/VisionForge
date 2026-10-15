@@ -42,9 +42,12 @@ interface Props {
   toggles: Toggles;
   selectedPlaneId: string | null;
   onSelectPlane: (planeId: string | null) => void;
+  /** Where to fetch the point cloud PLY from; defaults to the session's
+   * /cloud endpoint. The live screen points it at /live/{id}/cloud. */
+  cloudUrl?: string;
 }
 
-export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, onSelectPlane }: Props) {
+export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, onSelectPlane, cloudUrl: cloudUrlProp }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -254,7 +257,7 @@ export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, on
     if (coordSystem) {
       const loader = new PLYLoader();
       loader.load(
-        cloudUrl(sessionId),
+        cloudUrlProp ?? cloudUrl(sessionId),
         (geometry) => {
           const positionAttr = geometry.getAttribute("position") as THREE.BufferAttribute | undefined;
           if (!positionAttr) return;
@@ -275,7 +278,7 @@ export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, on
     applyToggles(groups, toggles);
     applyHighlight(planeMeshesRef.current, planeBaseColorRef.current, selectedPlaneId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, twin]);
+  }, [sessionId, twin, cloudUrlProp]);
 
   // ---- lightweight toggle visibility updates (no rebuild) ----
   useEffect(() => {

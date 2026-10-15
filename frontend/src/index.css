@@ -253,3 +253,162 @@ body,
   overflow-x: auto;
   white-space: nowrap;
 }
+
+/* ---------------------------------------------------------------- live */
+.live-link {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 8px;
+  background: #1f6f43;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.live-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 10px 16px;
+  gap: 8px;
+}
+
+.live-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.live-header h2 {
+  margin: 0;
+}
+
+button.link {
+  background: none;
+  border: 0;
+  color: #8ab4f8;
+  cursor: pointer;
+  padding: 0;
+}
+
+.live-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.live-controls input,
+.live-controls select {
+  background: #16181d;
+  color: #e6e6e6;
+  border: 1px solid #23262e;
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+
+button.primary,
+button.danger {
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.primary {
+  background: #2d7dd2;
+}
+
+button.danger {
+  background: #c0392b;
+}
+
+.live-state {
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-align: center;
+  padding: 14px;
+  border-radius: 8px;
+  background: #2a2d35;
+  color: #cfd3dc;
+}
+
+.live-state-sub {
+  display: block;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0;
+  margin-top: 4px;
+}
+
+.live-state-initializing {
+  background: #a66a00;
+  color: #fff;
+}
+
+.live-state-tracking {
+  background: #1f8a4c;
+  color: #fff;
+}
+
+.live-state-lost {
+  background: #c0392b;
+  color: #fff;
+  animation: live-blink 1s steps(2, start) infinite;
+}
+
+@keyframes live-blink {
+  to {
+    opacity: 0.55;
+  }
+}
+
+.live-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  color: #cfd3dc;
+}
+
+.live-body {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) 2fr;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.live-preview video {
+  width: 100%;
+  max-height: 100%;
+  background: #000;
+  border-radius: 6px;
+}
+
+.live-viewer {
+  position: relative;
+  min-height: 300px;
+  background: #111318;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.live-placeholder {
+  padding: 16px;
+}
+
+@media (max-width: 800px) {
+  .live-body {
+    grid-template-columns: 1fr;
+  }
+  .live-state {
+    font-size: 32px;
+  }
+}

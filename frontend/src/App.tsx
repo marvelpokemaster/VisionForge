@@ -7,10 +7,19 @@ import InspectPanel from "./components/InspectPanel";
 import MeasurementsPanel from "./components/MeasurementsPanel";
 import QueryBox from "./components/QueryBox";
 import ProvenanceFooter from "./components/ProvenanceFooter";
+import LiveScreen from "./components/LiveScreen";
+import { useRoute } from "./lib/useRoute";
+import { navigate } from "./lib/route";
 
 export default function App() {
+  const route = useRoute();
+  if (route.kind === "live") return <LiveScreen />;
+  return <SessionsApp routeSessionId={route.kind === "session" ? route.id : null} />;
+}
+
+function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(routeSessionId);
   const [twin, setTwin] = useState<Twin | null>(null);
   const [measurements, setMeasurements] = useState<RoomMeasurementsResponse | null>(null);
   const [selectedPlaneId, setSelectedPlaneId] = useState<string | null>(null);
@@ -23,14 +32,21 @@ export default function App() {
     cameras: true
   });
 
+  // (Re)load the session list on mount and whenever the route names a session
+  // (e.g. a live session that just finished), selecting the routed id if given.
   useEffect(() => {
     listSessions()
       .then((s) => {
         setSessions(s);
-        if (s.length > 0) setSelectedSessionId(s[0].id);
+        setSelectedSessionId((current) => routeSessionId ?? current ?? (s.length > 0 ? s[0].id : null));
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, []);
+  }, [routeSessionId]);
+
+  function selectSession(id: string) {
+    setSelectedSessionId(id);
+    navigate({ kind: "session", id });
+  }
 
   useEffect(() => {
     if (!selectedSessionId) return;
@@ -57,7 +73,10 @@ export default function App() {
   return (
     <div className="app">
       <aside className="sidebar">
-        <SessionList sessions={sessions} selectedId={selectedSessionId} onSelect={setSelectedSessionId} />
+        <button className="live-link" onClick={() => navigate({ kind: "live" })}>
+          ● Live tracking
+        </button>
+        <SessionList sessions={sessions} selectedId={selectedSessionId} onSelect={selectSession} />
         {measurements && <MeasurementsPanel measurements={measurements} />}
         {selectedSessionId && <QueryBox sessionId={selectedSessionId} />}
         {twin && <InspectPanel plane={selectedPlane} sceneGraph={twin.scene_graph} />}

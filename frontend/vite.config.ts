@@ -13,6 +13,7 @@ export default defineConfig({
       "/api": {
         target: API_TARGET,
         changeOrigin: true,
+        ws: true, // the live screen's WebSocket (/api/live/<id>) goes through the same proxy
         rewrite: (path) => path.replace(/^\/api/, "")
       }
     }
