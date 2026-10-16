@@ -501,3 +501,35 @@ button.small:disabled {
 .session-notice-block .stage-success {
   color: #3fbf7f;
 }
+
+/* --------------------------------------------------- intrinsics field */
+.intrinsics-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  font-size: 13px;
+}
+
+.intrinsics-field textarea {
+  width: 22em;
+  max-width: 100%;
+  height: 2.6em;
+  background: #16181d;
+  color: #e6e6e6;
+  border: 1px solid #23262e;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  resize: vertical;
+}
+
+.intrinsics-summary {
+  color: #9aa0ab;
+  font-family: ui-monospace, monospace;
+}
+
+.intrinsics-summary.set {
+  color: #3fbf7f;
+}

@@ -64,9 +64,10 @@ export class FramePump {
     return 1000 / this.fps;
   }
 
-  /** Send the configuration text message and start ticking. */
-  start(width: number, height: number): void {
-    this.socket.send(JSON.stringify({ width, height }));
+  /** Send the configuration text message (frame size plus any extra
+   * fields: intrinsics, record — see live/intrinsics.ts) and start ticking. */
+  start(width: number, height: number, extra: Record<string, unknown> = {}): void {
+    this.socket.send(JSON.stringify({ ...extra, width, height }));
     this.handle = this.timers.setInterval(() => void this.tick(), this.periodMs);
   }
 

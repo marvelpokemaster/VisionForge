@@ -111,3 +111,19 @@ describe("FramePump", () => {
     expect(ws.sent).toHaveLength(0);
   });
 });
+
+describe("configure message extras", () => {
+  it("merges intrinsics / record into the first text message, size winning", () => {
+    const texts: string[] = [];
+    const ws = { bufferedAmount: 0, readyState: 1, send: (d: string | ArrayBuffer) => void (typeof d === "string" && texts.push(d)) };
+    const timers = { setInterval: () => 1, clearInterval: () => undefined };
+    const pump = new FramePump(ws, async () => null, { fps: 10 }, { now: () => 0 }, timers);
+    pump.start(640, 1138, { record: true, intrinsics: { fx: 1, fy: 1, cx: 2, cy: 3, k1: 0, source: "phone_default" }, width: 1 });
+    expect(JSON.parse(texts[0])).toEqual({
+      record: true,
+      intrinsics: { fx: 1, fy: 1, cx: 2, cy: 3, k1: 0, source: "phone_default" },
+      width: 640,
+      height: 1138
+    });
+  });
+});

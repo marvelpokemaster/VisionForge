@@ -3,6 +3,9 @@ import Viewer3D, { type Toggles } from "./Viewer3D";
 import { navigate } from "../lib/route";
 import { registerBackGuard } from "../lib/backButton";
 import BackendField from "./BackendField";
+import IntrinsicsField, { loadStoredIntrinsics } from "./IntrinsicsField";
+import { configureMessage, type ParsedCameras } from "../live/intrinsics";
+import { RECORD_KEY, readStored, writeStored } from "../lib/stored";
 import { CameraSource, FileSource, type FrameSource } from "../live/source";
 import { FramePump } from "../live/pump";
 import { makeJpegEncoder, encodedSize } from "../live/encode";
@@ -27,6 +30,7 @@ interface FinishedReply {
   received: number;
   dropped: number;
   twin_updates: number;
+  recording: { dir: string; index: string; received: number; processed: number; not_processed: number } | null;
 }
 
 const FPS = 10;
@@ -50,6 +54,15 @@ export default function LiveScreen() {
   const [skipBreakdown, setSkipBreakdown] = useState<string>("");
   const [sourceEnded, setSourceEnded] = useState(false);
   const [toggles] = useState<Toggles>({ pointCloud: true, geometry: true, labels: true, cameras: true });
+  // "Record frames": the server keeps every received JPEG for offline replay (default off, persisted)
+  const [record, setRecord] = useState<boolean>(() => readStored(RECORD_KEY) === "1");
+  // calibration from `visionforge calibrate` (persisted); null -> the phone-default stopgap
+  const [cameras, setCameras] = useState<ParsedCameras | null>(loadStoredIntrinsics);
+
+  function toggleRecord(on: boolean) {
+    setRecord(on);
+    writeStored(RECORD_KEY, on ? "1" : null);
+  }
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const sourceRef = useRef<FrameSource | null>(null);
@@ -144,7 +157,8 @@ export default function LiveScreen() {
     pumpRef.current = pump;
 
     ws.onopen = () => {
-      pump.start(sent.width, sent.height);
+      // frame size + intrinsics for THAT size (calibration or phone default) + record flag
+      pump.start(sent.width, sent.height, configureMessage(sent, { cameras, record }));
       setRunning(true);
     };
     ws.onmessage = (ev) => {
@@ -216,6 +230,10 @@ export default function LiveScreen() {
         {sourceKind === "file" && (
           <input type="file" accept="video/*" disabled={running} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         )}
+        <label title="server keeps every received JPEG under outputs/<id>/frames for offline replay (visionforge live --frames-dir)">
+          <input type="checkbox" checked={record} disabled={running} onChange={(e) => toggleRecord(e.target.checked)} /> Record frames
+        </label>
+        <IntrinsicsField value={cameras} onChange={setCameras} disabled={running || stopping} />
         {!running ? (
           <button className="primary" onClick={() => void start()} disabled={stopping}>
             Start
@@ -284,7 +302,8 @@ export default function LiveScreen() {
 
       {finished && (
         <p className="muted">
-          finished: {finished.frames} frames processed, {finished.dropped} dropped, {finished.twin_updates} twin updates →{" "}
+          finished: {finished.frames} frames processed, {finished.dropped} dropped, {finished.twin_updates} twin updates
+          {finished.recording ? `, recorded ${finished.recording.received} frames → ${finished.run_dir}/${finished.recording.dir}` : ""} →{" "}
           {Object.entries(finished.stage_status)
             .map(([k, v]) => `${k}: ${v}`)
             .join(", ")}
