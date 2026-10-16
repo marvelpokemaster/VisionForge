@@ -149,9 +149,19 @@ Testing is part of development: do all ten, then paste back what §4 asks for.
    **`connection: ok (N sessions, … ms)`**. If it says `failed`, stop here
    and fix the network (§0: phone Chrome → `http://192.168.1.37:8000/sessions`
    must show JSON; firewall; same Wi-Fi). Nothing else can work until it is ok.
-5. **● Live tracking** → Source = **camera** → **Start**. Allow the camera
-   permission prompt. The preview shows the rear camera; the strip starts
-   counting frames and `tracked` features; the banner is amber INITIALIZING.
+5. **● Live tracking** → Source = **camera** → **tick Record frames** (the
+   server then keeps every received JPEG under `outputs/<id>/frames/` so the
+   walk can be replayed and tuned offline: `visionforge live --frames-dir
+   outputs/<id>/frames --output outputs/<id>_replay`; ~30 KB per frame, a
+   30 s walk is ~10 MB) → leave **Intrinsics** empty the first time (the app
+   sends the `phone_default` stopgap, 0.8 × longer side; the strip shows
+   `intrinsics: phone_default`) → **Start**. Allow the camera permission
+   prompt. The preview shows the rear camera; the strip starts counting
+   frames and `tracked` features; the banner is amber INITIALIZING.
+   Later, once a calibration exists (`visionforge calibrate --video
+   <clip from this phone, same orientation> --output iqoo.json`, see
+   `docs/live_tracking.md` §11), paste that JSON into **Intrinsics**: the
+   strip then shows `intrinsics: colmap`.
 6. **Hold the phone upright** (portrait, camera at chest height, pointed at a
    wall / corner 1.5–3 m away in a normally lit, **textured** room: posters,
    furniture, books — not a blank white wall, not a window).
@@ -188,8 +198,14 @@ may be labelled **floor** even when it is a wall. Report the labels as they are.
    line, every `GET /live/<id>/cloud`, any `Error` / `Traceback`, the
    `Classifications: {...}` line and `GET /sessions/<id>/twin … 200`.
 3. **`outputs/<id>/tracking_report.json`** from the PC (frames, keyframes,
-   state_counts, lost_episodes, map_size, timing) and
-   `outputs/<id>/run_status.json` (`live.dropped`, `live.source_size`).
+   state_counts, lost_episodes, map_size, **timing** — now filled in —,
+   **keyframe_reasons**) and `outputs/<id>/run_status.json` (`live.dropped`,
+   `live.source_size`, `live.timing`, `live.recording`).
+   **Paste the `frames/` dir size** too: the file count and bytes
+   (`Get-ChildItem outputs\<id>\frames | Measure-Object -Sum Length` or
+   `du -sh outputs/<id>/frames`), and the first two lines of
+   `outputs/<id>/frames.jsonl`. That recording is what the next tuning round
+   replays, so keep the directory.
 4. **P2 plane count and labels** of the finished session (sidebar → Inspect,
    or `curl http://192.168.1.37:8000/sessions/<id>/room_model | jq '.planes[] | {id,type,support}'`),
    and of the first twin update that drew geometry if you noticed it.

@@ -1,0 +1,161 @@
+{
+  "frames": 219,
+  "keyframes": [
+    128,
+    130,
+    131,
+    132,
+    133,
+    134,
+    135,
+    136,
+    137,
+    141,
+    148,
+    150,
+    152,
+    153,
+    154,
+    156,
+    157,
+    159,
+    160,
+    161,
+    162,
+    163,
+    165
+  ],
+  "n_keyframes": 23,
+  "state_counts": {
+    "INITIALIZING": 65,
+    "TRACKING": 131,
+    "LOST": 23
+  },
+  "tracking_fraction": 0.5981735159817352,
+  "lost_episodes": [
+    {
+      "start": 68,
+      "end": 69,
+      "n_frames": 2
+    },
+    {
+      "start": 73,
+      "end": 76,
+      "n_frames": 4
+    },
+    {
+      "start": 116,
+      "end": 117,
+      "n_frames": 2
+    },
+    {
+      "start": 119,
+      "end": 124,
+      "n_frames": 6
+    },
+    {
+      "start": 128,
+      "end": 129,
+      "n_frames": 2
+    },
+    {
+      "start": 166,
+      "end": 172,
+      "n_frames": 7
+    }
+  ],
+  "map_size": 986,
+  "mean_reprojection_rms": 1.138997658946047,
+  "intrinsics": {
+    "fx": 1138.0,
+    "fy": 1138.0,
+    "cx": 320.0,
+    "cy": 569.0,
+    "k1": 0.0,
+    "source": "guess"
+  },
+  "intrinsics_source": "guess",
+  "segments": [
+    {
+      "index": 0,
+      "start_frame": 53,
+      "end_frame": 67,
+      "n_keyframes": 3,
+      "map_size": 88,
+      "exported": false
+    },
+    {
+      "index": 1,
+      "start_frame": 68,
+      "end_frame": 72,
+      "n_keyframes": 4,
+      "map_size": 207,
+      "exported": false
+    },
+    {
+      "index": 2,
+      "start_frame": 76,
+      "end_frame": 115,
+      "n_keyframes": 16,
+      "map_size": 404,
+      "exported": false
+    },
+    {
+      "index": 3,
+      "start_frame": 117,
+      "end_frame": 118,
+      "n_keyframes": 2,
+      "map_size": 46,
+      "exported": false
+    },
+    {
+      "index": 4,
+      "start_frame": 123,
+      "end_frame": 127,
+      "n_keyframes": 4,
+      "map_size": 108,
+      "exported": false
+    },
+    {
+      "index": 5,
+      "start_frame": 128,
+      "end_frame": 165,
+      "n_keyframes": 23,
+      "map_size": 986,
+      "exported": true
+    },
+    {
+      "index": 6,
+      "start_frame": 166,
+      "end_frame": 219,
+      "n_keyframes": 5,
+      "map_size": 343,
+      "exported": false
+    }
+  ],
+  "config": {
+    "max_features": 600,
+    "init_min_matches": 60,
+    "init_max_ref_age": 90,
+    "init_min_parallax_px": 10.0,
+    "init_min_parallax_residual_px": 3.0,
+    "init_min_parallax_fraction": 0.1,
+    "init_min_inliers": 40,
+    "init_min_points": 30,
+    "init_min_accept_ratio": 0.5,
+    "essential_ransac_px": 1.0,
+    "triangulation_reproj_px": 2.0,
+    "min_triangulation_angle_deg": 1.0,
+    "min_tracked_points": 20,
+    "pnp_reproj_px": 3.0,
+    "pnp_min_inliers": 15,
+    "pnp_max_outlier_strikes": 2,
+    "keyframe_min_gap": 1,
+    "keyframe_tracked_fraction": 0.6,
+    "keyframe_min_parallax_px": 20.0,
+    "max_map_points": 20000
+  },
+  "timing": null,
+  "video": "live:live-1792149775026",
+  "exported_segment": 5
+}

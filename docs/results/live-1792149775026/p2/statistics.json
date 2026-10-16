@@ -1,0 +1,162 @@
+{
+  "point_cloud": {
+    "raw_points": 986,
+    "cleaned_points": 924,
+    "retention_ratio": 0.9371196754563894,
+    "min_bound": [
+      -8.472624596219626,
+      -9.417146654479396,
+      6.799150951205751
+    ],
+    "max_bound": [
+      5.031550450300281,
+      8.454142276520773,
+      28.78852387534132
+    ],
+    "centroid": [
+      -1.267107172469347,
+      0.3343571979680518,
+      16.14638696512174
+    ],
+    "approx_dimensions": [
+      13.504175046519908,
+      17.87128893100017,
+      21.98937292413557
+    ]
+  },
+  "resolved_thresholds": {
+    "bbox_diagonal": 42.91381776443745,
+    "voxel_size": 0.21456908882218723,
+    "plane_distance_threshold": 0.42913817764437445
+  },
+  "geometry": {
+    "num_planes": 7,
+    "classifications": {
+      "floor": 1,
+      "ceiling": 0,
+      "wall": 3,
+      "unknown": 3
+    },
+    "metric_scale_available": false,
+    "up_source": "architectural_planes+largest_plane_legacy",
+    "up_confidence": 0.5558001725697069,
+    "up_sources": {
+      "camera_gravity": {
+        "vector": [
+          -0.03828243892303535,
+          -0.9991380938334284,
+          0.016047564332545138
+        ],
+        "confidence": 0.9987820721177257,
+        "sample_count": 23,
+        "available": true,
+        "coherence": 0.9983760961569677,
+        "agreement_angle_to_final_deg": 20.162542223281122,
+        "agrees_with_final": false
+      },
+      "architectural_planes": {
+        "vector": [
+          0.24923680083743763,
+          -0.9519374504093234,
+          -0.17803400691024324
+        ],
+        "confidence": 0.8205639730639731,
+        "available": true,
+        "reason": "Highest architectural score",
+        "agreement_angle_to_final_deg": 0.0,
+        "agrees_with_final": true
+      },
+      "manhattan_planes": {
+        "vector": [
+          0.9296208118099166,
+          -0.06678773325836988,
+          0.3624148795732323
+        ],
+        "confidence": 0.4649514128898943,
+        "pair_count": 1,
+        "available": true,
+        "support_sum": 150.0,
+        "member_indices": [
+          3,
+          4
+        ],
+        "agreement_angle_to_final_deg": 76.65869273610717,
+        "agrees_with_final": false
+      },
+      "largest_plane_legacy": {
+        "vector": [
+          0.24923680083743763,
+          -0.9519374504093234,
+          -0.17803400691024324
+        ],
+        "confidence": 0.5760869565217391,
+        "available": true,
+        "plane_id": "plane_000",
+        "support_share": 0.34782608695652173,
+        "agreement_angle_to_final_deg": 0.0,
+        "agrees_with_final": true
+      }
+    }
+  },
+  "room_measurements": {
+    "length": 12.105444429993277,
+    "width": 11.51995441599113,
+    "height": 10.40762229291578,
+    "floor_area": 139.45416801883627,
+    "length_method": "floor_extent",
+    "width_method": "floor_extent",
+    "height_method": "wall_extent_estimate",
+    "floor_area_method": "floor_extent",
+    "bounding_polygon_room": [
+      [
+        -6.172945084126763,
+        -1.5327647371056414
+      ],
+      [
+        -5.709886388447354,
+        -3.0506629665252736
+      ],
+      [
+        -4.675256802493697,
+        -4.632600636492842
+      ],
+      [
+        -3.8662104385894582,
+        -5.543087259060992
+      ],
+      [
+        3.8794266146979077,
+        -5.6472272586497825
+      ],
+      [
+        10.910695572642283,
+        -3.2707330727775252
+      ],
+      [
+        15.363791801981915,
+        1.0572600872572866
+      ],
+      [
+        15.117445162994697,
+        2.331262398530239
+      ],
+      [
+        8.478888467035409,
+        9.357803007619122
+      ],
+      [
+        3.206204793653698,
+        8.246557761696012
+      ],
+      [
+        0.8517336142151172,
+        6.93393524612411
+      ],
+      [
+        0.2743555498922461,
+        6.499390561486851
+      ]
+    ]
+  },
+  "processing_time_seconds": 0.03790926933288574
+}

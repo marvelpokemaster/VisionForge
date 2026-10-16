@@ -139,7 +139,9 @@ reference's units together with the reference trajectory's bounding-box extent.
 | `segments` | every segment: frame range, keyframes, map size, `exported` flag |
 | `exported_segment` | index of the exported segment, `null` if nothing initialised |
 | `config` | the `TrackerConfig` used |
-| `video` | source path, `"webcam"`, or `null` |
+| `video` | source path, `"webcam"`, `"live:<id>"`, or `null` |
+| `timing` | CLI: wall time + `process_frame_ms_*` from the runner. Live sessions (§9): `frames`, `wall_time_s`, `delivered_fps`, `process_frame_ms_{mean,p50,p95,max}` (whole feed: decode + resize + track + geometry), `track_ms_{mean,p50,p95}` (tracker only), `interarrival_ms_{mean,p50,p95,max}` between processed frames, `frames_over_100ms`, `keyframe_ms_mean` / `non_keyframe_ms_mean`. Never `null` for a live session (also in `run_status.live.timing`) |
+| `keyframe_reasons` | one entry per keyframe, in order: `frame_index`, `segment`, `condition` (`init` for the initialisation pair; else `fraction` / `parallax` / `both`), and the values seen — `tracked_fraction` vs `tracked_fraction_threshold`, `parallax_px` vs `parallax_threshold_px`, `gap` since the last keyframe, `n_inliers` |
 
 ## 4. Measured numbers — synthetic clip (`data/input/synthetic_box_room.mp4`, 800×600, 24 frames @ 2 fps)
 
@@ -429,8 +431,8 @@ like any other session.
 
 | direction | message | meaning |
 |---|---|---|
-| client → | text `{"width": W, "height": H, "intrinsics": {fx,fy,cx,cy,k1}?}` or `{"intrinsics_from_cameras": [cameras.json entries]}` | optional, before the first frame: frame size and/or intrinsics **for that size** |
-| ← server | text `{"configured": true, "intrinsics": {...}, "processed_size": [w,h]}` | |
+| client → | text `{"width": W, "height": H, "intrinsics": {fx,fy,cx,cy,k1,source?}?}` or `{"intrinsics_from_cameras": [cameras.json entries], "intrinsics_size": [w,h]?}`, plus `"record": true?` | optional, before the first frame: frame size and/or intrinsics **for that size** — or, with `intrinsics_size` (or `width`/`height` on the cameras entry, as `visionforge calibrate` writes), for another size with the same aspect ratio, rescaled server-side before the downscale. `intrinsics.source` is `client` (default) or `phone_default` (the Live screen's 0.8 × longer-side stopgap). `record` keeps every received frame (below) |
+| ← server | text `{"configured": true, "intrinsics": {...}, "processed_size": [w,h], "recording": bool, "keyframe_min_gap": 3}` | |
 | client → | **binary** JPEG | one frame; the server assigns `frame_index` = frames received so far |
 | ← server | text status (below) | one per **processed** frame (dropped frames get none) |
 | client → | text `{"cmd": "finish"}` | process what is pending, export, build P2/scene graph/twin |
@@ -456,8 +458,28 @@ drops it. A second socket on an active id is accepted and closed with **4409**
   unchanged (normalised coordinates). `processed_size` and the exported
   `tracking_report.json` intrinsics are the scaled ones. The frame size may not
   change mid-session.
-* **Frames are never stored.** The tracker keeps one previous grayscale frame
-  (KLT needs it); nothing else.
+* **Frames are not stored unless asked.** The tracker keeps one previous
+  grayscale frame (KLT needs it); nothing else. With `"record": true` in the
+  configure message (`live/recording.py`) every **received** JPEG — including
+  the ones backpressure then drops — is written to
+  `outputs/<id>/frames/<frame_index:06d>.jpg`, indexed by
+  `outputs/<id>/frames.jsonl` (`frame_index, received_at, bytes, file,
+  processed`) with the configure message in `outputs/<id>/configure.json`;
+  the `finished` reply and `run_status.live.recording` give the counts. A
+  recording is replayed at its original timing with
+  `scripts/replay_live.py --frames-dir outputs/<id>/frames [--fps N]
+  [--processed-only] [--record]`, or run offline — same bytes, same frame
+  indices, recorded intrinsics, live tracker settings — with
+  `visionforge live --frames-dir outputs/<id>/frames --output <dir2>
+  [--processed-only]` (`live/offline.py`). `frames/` is never a session, never
+  provenance, never persisted. This is how real footage gets tuned without
+  re-walking the room.
+* **Keyframe gap:** live sessions use `keyframe_min_gap = 3` (§11); the CLI
+  keeps `TrackerConfig`'s 1. Every keyframe's reason is in
+  `tracking_report.keyframe_reasons` (§3).
+* **Timing:** `tracking_report.timing` / `run_status.live.timing` (§3) are
+  measured by the session itself — process time per frame, inter-arrival
+  interval, delivered fps.
 * **Map cap:** `TrackerConfig.max_map_points` (20 000 for live sessions, unbounded
   for the CLI): after each keyframe the oldest map points not observed by any live
   feature track are dropped until the segment is under the cap. Measured points
@@ -681,11 +703,93 @@ the app.
 
 ## 7. Real footage
 
-`data/input/room.mp4` does not exist on the development machine, so **nothing above
-says anything about physical-camera video**: motion blur, rolling shutter,
-textureless walls, real lens distortion and a wrong focal guess are all untested.
-(The 30 fps clip in §6 is still the rendered box room, only resampled.)
+Until §11 (2026-10-16) **nothing above said anything about physical-camera
+video**: §1–§10 are the rendered box room (the 30 fps clip in §6 is still the
+rendered room, only resampled). §11 is the first real run — one phone, one
+room, mostly rotation — and it already showed a wrong focal guess and a
+keyframe policy tuned on synthetic frames; motion blur, rolling shutter,
+textureless walls and real lens distortion remain unmeasured until a
+recorded (replayable) walk-through exists.
 `docs/real_video_checklist.md` applies to the live path too, plus: watch
 `lost_episodes` and `segments` (a real walk-through will almost certainly lose
 tracking at least once), and whether initialisation happens at all when the
 operator starts by panning.
+
+## 11. First real-phone run (Phase 3 step 6, 2026-10-16)
+
+Session `live-1792149775026`: iQOO Neo 7, Wi-Fi to the PC at 192.168.1.37,
+camera source, portrait. **The first physical-camera footage this project
+has ever processed.** The run's `tracking_report.json`, `run_status.json`,
+`p2/room_model.json` and `p2/statistics.json` are kept verbatim in
+`docs/results/live-1792149775026/` (not the PLY; frames were not recorded —
+recording did not exist yet, see below).
+
+### Numbers (verbatim from the report)
+
+| | |
+|---|---|
+| frames | **219** (received 220, `dropped` 1, 19 twin updates) |
+| states | **131 TRACKING / 65 INITIALIZING / 23 LOST** (tracking fraction 0.598) |
+| LOST episodes | **6** (68–69, 73–76, 116–117, 119–124, 128–129, 166–172) |
+| segments | **7**; exported **segment 5 = frames 128–165 only** (23 keyframes, 986 points); the others 3 / 4 / 16 / 2 / 4 / 5 keyframes |
+| keyframes (seg. 5) | **23 — almost every frame: 128, 130, 131, 132, 133, 134, 135, 136, 137, 141, 148, …** |
+| map | **986** points, mean reprojection RMS **1.14 px** |
+| intrinsics | **GUESS fx = fy = 1138** at **640 × 1138 portrait** (source `guess`, `max(w, h)`) |
+| timing | **null** (the session did not measure it) |
+| P2 | **7 planes {floor 1, wall 3, unknown 3}**, `up_source` **`architectural_planes+largest_plane_legacy`**, up confidence 0.56; room 12.1 × 11.5 × 10.4 (arbitrary scale, so meaningless as metres) |
+
+### Motion caveat — read before drawing conclusions
+
+The operator mostly **rotated** the phone and walked very little. The
+tracker's initialisation gate needs translation (parallax), and a rotation
+produces none, so the 65 INITIALIZING frames, the 6 LOST episodes and the
+short segments are largely **the parallax gate behaving correctly**, not a
+tracker defect. **Do not retune the LOST / initialisation thresholds from
+this run.** The next run follows `docs/live_android_checklist.md` §3 (slow
+sideways walk, 2–3 m) with **Record frames** ticked, so tuning can happen on
+replayable footage instead.
+
+### Findings (the real ones)
+
+1. **Intrinsics were a guess.** `fx = max(w, h) = 1138` at 640 × 1138 is a
+   ~53° field of view along the long side; phone main cameras are wider
+   (≈ 60–75°), so the focal was over-estimated. Stopgap now in place:
+   the Live screen sends `CameraIntrinsics.phone_default` = **0.8 × the
+   longer side** (~64°, source `phone_default`), computed for the size it
+   sends and scaled by the server like any intrinsics. Real fix:
+   `visionforge calibrate --video <clip> --output <json>` (P0 + P1 / COLMAP
+   on a 20–30 s clip from the same phone in the same orientation, slow
+   sideways walk) → the Live screen's **Intrinsics** field → sent as
+   `intrinsics_from_cameras` + `intrinsics_size`, rescaled server-side to
+   the received frames (tested). Both are documented in §9 and the checklist.
+2. **Keyframe on (almost) every frame.** 23 keyframes in 38 frames of segment
+   5: the `tracked_fraction < 0.6` gate fires every frame once the map is
+   small and features churn. Live sessions now use **`keyframe_min_gap = 3`**
+   (`LiveSession` default; the CLI keeps 1), and every keyframe records which
+   condition fired and with what values in `tracking_report.keyframe_reasons`
+   so the next run says *why*. Nothing else was retuned — that is what the
+   recording is for.
+3. **`timing: null`.** The session never measured itself. It now records
+   per-frame process time (whole feed and tracker only), inter-arrival
+   interval and delivered fps — mean / p50 / p95 / max, frames over 100 ms —
+   into `tracking_report.timing` and `run_status.live.timing`, never null.
+
+### Flagged for P2's owner: camera-gravity disagreement
+
+`p2/statistics.json` → `geometry.up_sources`: the **camera_gravity** source
+(the keyframes' down direction, 23 samples, coherence 0.998, confidence
+**0.999**) points **20.2° away** from the final up axis, which P2 took from
+`architectural_planes` + `largest_plane_legacy` (confidence 0.82 / 0.58,
+final 0.56) — `agrees_with_final: false` **although the phone was held
+upright** the whole time. The phone's gravity is the one source here that
+is not a guess from a 986-point cloud with 3 `unknown` planes; the
+arbitration preferred the plane heuristic. Not changed here (P2's owner);
+recorded so the next run can be compared.
+
+### What changed for the next run
+
+Recording (`{"record": true}` → `outputs/<id>/frames/` + `frames.jsonl` +
+`configure.json`, §9), offline replay (`visionforge live --frames-dir`,
+`scripts/replay_live.py --frames-dir`), timing, `phone_default` intrinsics,
+`visionforge calibrate`, `keyframe_min_gap = 3` for live sessions,
+`keyframe_reasons`. Tests: backend 176 → 190, vitest 53 → 61.

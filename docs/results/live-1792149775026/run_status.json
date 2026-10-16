@@ -1,0 +1,24 @@
+{
+  "input_type": "unknown",
+  "video": "live:live-1792149775026",
+  "mode": "live",
+  "stages": {
+    "live_tracking": "success",
+    "p2_room_geometry": "success",
+    "scene_graph": "success",
+    "twin": "success"
+  },
+  "live": {
+    "frames": 219,
+    "dropped": 1,
+    "twin_updates": 19,
+    "source_size": [
+      640,
+      1138
+    ],
+    "processed_size": [
+      640,
+      1138
+    ]
+  }
+}
