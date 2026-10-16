@@ -3,8 +3,9 @@
 Protocol (see docs/live_tracking.md §9):
 
   WS /live/{session_id}
-    client -> text   {"width": W, "height": H, "intrinsics": {fx,fy,cx,cy,k1}?
-                      | "intrinsics_from_cameras": [cameras.json entries]?}   (optional, first)
+    client -> text   {"width": W, "height": H, "intrinsics": {fx,fy,cx,cy,k1,source?}?
+                      | "intrinsics_from_cameras": [cameras.json entries]?,
+                      "intrinsics_size": [w,h]?, "record": true?}             (optional, first)
     server -> text   {"configured": true, ...}
     client -> bytes  one JPEG frame                       (repeat)
     server -> text   the LiveSession.feed() status dict   (one per PROCESSED frame)
@@ -64,7 +65,8 @@ async def live_socket(ws: WebSocket, session_id: str):
         await ws.close(code=CLOSE_ALREADY_ACTIVE, reason=f"live session '{session_id}' is already active")
         return
 
-    session = LiveSession(session_id, **app.state.live_session_defaults)
+    kwargs = {"outputs_root": app.state.store.outputs_root, **app.state.live_session_defaults}
+    session = LiveSession(session_id, **kwargs)
     entry = {"session": session, "websocket": ws, "started": time.time()}
     sessions[session_id] = entry
     loop = asyncio.get_running_loop()
@@ -95,9 +97,11 @@ async def live_socket(ws: WebSocket, session_id: str):
             if msg["type"] == "websocket.disconnect":
                 break
             if msg.get("bytes") is not None:
+                now = time.perf_counter()  # perf_counter: monotonic() is ~16 ms-grained on Windows
+                session.record_received(received, msg["bytes"], now)  # no-op unless {"record": true}
                 if "frame" in latest:
-                    session.record_dropped()
-                latest["frame"] = (msg["bytes"], received, time.monotonic())
+                    session.record_dropped(frame_index=latest["frame"][1])
+                latest["frame"] = (msg["bytes"], received, now)
                 received += 1
                 idle.clear()
                 wake.set()
@@ -122,6 +126,7 @@ async def live_socket(ws: WebSocket, session_id: str):
                     "received": received,
                     "dropped": session.dropped,
                     "twin_updates": session.n_twin_updates,
+                    "recording": session.recorder.summary() if session.recorder is not None else None,
                 })
                 await ws.close(code=1000)
                 break
@@ -134,6 +139,7 @@ async def live_socket(ws: WebSocket, session_id: str):
         pass
     finally:
         worker_task.cancel()
+        session.close_recording()  # a socket that died without finish still leaves a consistent index
         sessions.pop(session_id, None)
 
 

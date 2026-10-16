@@ -194,6 +194,10 @@ def cmd_live(args):
     from visionforge.live.intrinsics import CameraIntrinsics
     from visionforge.live.runner import run_live_tracker, run_source
 
+    if getattr(args, "frames_dir", None):
+        _live_from_recording(args)
+        return
+
     if args.video is None and args.output is None and args.intrinsics_from is None:
         run_live_tracker()  # webcam demo, as before
         return
@@ -257,6 +261,85 @@ def cmd_live(args):
     print("\nLive construction complete.")
 
 
+def _live_from_recording(args):
+    """`visionforge live --frames-dir <recorded session or its frames/> --output <dir>`:
+    the recorded bytes through LiveSession offline (live/offline.py), with the
+    recorded configure message (frame size, intrinsics) and the live tracker
+    settings, then the usual export -> P2 -> scene graph -> twin."""
+    from visionforge.live.offline import replay_recording
+
+    if not args.output:
+        print("Error: --frames-dir needs --output <run directory>.")
+        sys.exit(1)
+    frames_dir = Path(args.frames_dir)
+    if not frames_dir.exists():
+        print(f"Error: {frames_dir} not found.")
+        sys.exit(1)
+    out_dir = Path(args.output)
+    print("==================================================")
+    print(" VisionForge: Live Tracking — offline replay of a recording")
+    print("==================================================")
+    print(f"[1/5] Replaying {frames_dir} ({'processed frames only' if args.processed_only else 'every received frame'})...")
+
+    def log(st):
+        if args.max_frames is None and st["frame_index"] % 10 and not st["is_keyframe"]:
+            return
+        rms = f"{st['reprojection_rms']:.2f}" if st["reprojection_rms"] is not None else "-"
+        print(f"[{st['frame_index']:5d}] {st['state']:12s} tracked={st['n_tracked']:4d} inliers={st['n_inliers']:4d} "
+              f"rms={rms:>5s} map={st['map_size']:5d}{'  KF' if st['is_keyframe'] else ''}")
+
+    try:
+        session, rec = replay_recording(frames_dir, out_dir, processed_only=args.processed_only,
+                                        max_frames=args.max_frames, log=log,
+                                        input_type=args.input_type or "unknown", seed=args.seed)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+    report = json.loads((out_dir / "tracking_report.json").read_text())
+    tm = report["timing"] or {}
+    print(f"Tracking report: frames={report['frames']} keyframes={report['n_keyframes']} "
+          f"states={report['state_counts']} lost_episodes={len(report['lost_episodes'])} "
+          f"map={report['map_size']} mean_rms={report['mean_reprojection_rms']} "
+          f"intrinsics={report['intrinsics_source']} process_ms_p50={tm.get('process_frame_ms_p50')}")
+    print(f"Stages: {session.stage_status}")
+    print(f"Wrote {out_dir}")
+    if session.stage_status.get("live_tracking") != "success":
+        sys.exit(1)
+
+
+def cmd_calibrate(args):
+    """`visionforge calibrate --video <phone clip> --output <json>`: P0 + P1
+    (COLMAP) on a short clip from the SAME phone in the SAME orientation,
+    then the per-camera intrinsics and their median in a cameras.json-style
+    list the live protocol accepts as `intrinsics_from_cameras` (the Live
+    screen's Intrinsics field). See live/calibrate.py."""
+    from visionforge.live.calibrate import run_calibration
+
+    video_path = Path(args.video)
+    if not video_path.exists():
+        print(f"Error: {video_path} not found.")
+        sys.exit(1)
+    out_path = Path(args.output)
+    work_dir = Path(args.work_dir) if args.work_dir else out_path.with_suffix("").with_name(out_path.stem + "_work")
+    print("==================================================")
+    print(" VisionForge: Phone Intrinsics Calibration (P0 + P1)")
+    print("==================================================")
+    try:
+        result = run_calibration(video_path, out_path, work_dir, fps=args.fps, max_frames=args.max_frames,
+                                 run_stage=_run_stage)
+    except StageError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
+    med = result[0]
+    print(f"Calibrated {len(result) - 1} cameras at {med['width']}x{med['height']}: median "
+          f"{med['camera_model']} {[round(v, 3) for v in med['camera_params']]}")
+    print(f"Wrote {out_path} — paste it into the Live screen's Intrinsics field, or "
+          f"`visionforge live --intrinsics-from {out_path}`")
+
+
 def cmd_twin_build(args):
     run_dir = Path(args.run_dir)
     if not run_dir.exists():
@@ -316,6 +399,27 @@ def main():
                              help="Recorded in run_status.json / twin.json provenance (default 'unknown')")
     live_parser.add_argument("--seed", type=int, default=None,
                              help="Seed for the P2 geometry stage's RNGs (default: unseeded, current behaviour)")
+    live_parser.add_argument("--frames-dir", default=None,
+                             help="Replay a RECORDED live session offline (outputs/<id> or outputs/<id>/frames, written "
+                                  "by a session started with {\"record\": true}) with its recorded intrinsics; "
+                                  "needs --output. Uses the live tracker settings (keyframe_min_gap 3, map cap).")
+    live_parser.add_argument("--processed-only", action="store_true",
+                             help="--frames-dir only: feed just the frames the live tracker saw (skip the ones "
+                                  "backpressure dropped) to reproduce the live run")
+
+    # Calibrate command
+    cal_parser = subparsers.add_parser("calibrate",
+                                       help="Estimate a phone's intrinsics with COLMAP (P0 + P1) from a short clip")
+    cal_parser.add_argument("--video", required=True,
+                            help="A 20-30 s clip from the SAME phone in the SAME orientation as the live run, "
+                                 "slow sideways walk in a textured room")
+    cal_parser.add_argument("--output", required=True,
+                            help="Output JSON: a cameras.json-style list, median first, then one entry per "
+                                 "registered frame (each with width/height)")
+    cal_parser.add_argument("--work-dir", default=None,
+                            help="Where P0/P1 write (default: <output stem>_work next to the output)")
+    cal_parser.add_argument("--fps", type=float, default=2.0, help="Frame sampling rate for P0 (default 2)")
+    cal_parser.add_argument("--max-frames", type=int, default=None, help="Cap on extracted frames")
 
     # Twin command
     twin_parser = subparsers.add_parser("twin", help="Digital twin data layer commands")
@@ -335,6 +439,8 @@ def main():
             cmd_reconstruct(args)
         elif args.command == "live":
             cmd_live(args)
+        elif args.command == "calibrate":
+            cmd_calibrate(args)
         elif args.command == "twin":
             if args.twin_command == "build":
                 cmd_twin_build(args)

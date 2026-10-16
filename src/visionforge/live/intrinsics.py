@@ -72,6 +72,21 @@ class CameraIntrinsics:
         f = float(max(width, height))
         return cls(f, f, width / 2.0, height / 2.0, 0.0, "guess")
 
+    @classmethod
+    def phone_default(cls, width: int, height: int) -> "CameraIntrinsics":
+        """Focal = 0.8 × the LONGER side, principal point at the centre. A
+        STOPGAP for phones streaming through the WebView, which cannot read
+        the lens: 0.8 × long side is a ~64° field of view along that side
+        (2·atan(0.5/0.8)), the middle of the main-camera range of recent
+        phones (≈ 60–75°); max(w, h) (``guess_for_frame``, used by the CLI)
+        corresponds to ~53°, which on the first real-phone run over-estimated
+        the focal (fx = 1138 at 640×1138, docs/live_tracking.md §11).
+        Expressed for the frame size it is given, so it scales with the
+        frame like any other intrinsics. The real fix is `visionforge
+        calibrate` (live/calibrate.py) on a clip from the same phone."""
+        f = 0.8 * float(max(width, height))
+        return cls(f, f, width / 2.0, height / 2.0, 0.0, "phone_default")
+
     @property
     def K(self) -> np.ndarray:
         return np.array([[self.fx, 0.0, self.cx],
