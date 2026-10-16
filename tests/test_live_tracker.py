@@ -522,3 +522,34 @@ def test_max_map_points_caps_the_map_without_dropping_tracked_points():
     # and the uncapped run really would have exceeded the cap
     uncapped, _ = run_sequence(translating_path())
     assert len(uncapped.exported_segment().map_points) > 150
+
+
+# -------------------------------------------------- keyframe policy (step 6)
+def test_keyframe_min_gap_is_enforced_and_every_keyframe_has_a_recorded_reason():
+    poses = translating_path(360, duration=29)  # 30 fps resampling: many near-identical consecutive frames
+    _, results_gap1 = run_sequence(poses, config=TrackerConfig(keyframe_min_gap=1))
+    tracker, results = run_sequence(poses, config=TrackerConfig(keyframe_min_gap=3))
+    report = tracker.report()
+    assert report["config"]["keyframe_min_gap"] == 3
+    reasons = report["keyframe_reasons"]
+    # one reason per keyframe of every segment, in order, and the init pair is marked as such
+    for seg in tracker.segments:
+        kf_frames = [kf.frame_index for kf in seg.keyframes]
+        seg_reasons = [r for r in reasons if r["segment"] == seg.index]
+        assert [r["frame_index"] for r in seg_reasons] == kf_frames
+        assert [r["condition"] for r in seg_reasons[:2]] == ["init", "init"]
+        # the gap is enforced between consecutive keyframes after initialisation
+        gaps = np.diff(kf_frames[1:])
+        assert len(gaps) > 0 and gaps.min() >= 3, kf_frames
+        for r in seg_reasons[2:]:
+            assert r["condition"] in ("fraction", "parallax", "both") and r["gap"] >= 3
+            fired_fraction = r["tracked_fraction"] < r["tracked_fraction_threshold"]
+            fired_parallax = r["parallax_px"] >= r["parallax_threshold_px"]
+            assert (r["condition"] == "fraction") == (fired_fraction and not fired_parallax)
+            assert (r["condition"] == "parallax") == (fired_parallax and not fired_fraction)
+            assert (r["condition"] == "both") == (fired_fraction and fired_parallax)
+    # with gap 1 on the same path the policy may fire on consecutive frames; with gap 3 it cannot
+    kf1 = [r.frame_index for r in results_gap1 if r.is_keyframe]
+    kf3 = [r.frame_index for r in results if r.is_keyframe]
+    assert len(kf3) <= len(kf1)
+    assert all(r.state == TrackState.TRACKING for r in results[60:])  # the gap does not cost tracking on this path

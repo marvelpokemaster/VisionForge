@@ -40,7 +40,7 @@ import math
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -286,7 +286,11 @@ class LiveTracker:
         self._ref_frame_index: Optional[int] = None
         self._next_map_id = 0
         self.results: List[FrameResult] = []
-        self.timing: Optional[dict] = None  # set by the runner: wall time, ms per frame
+        self.timing: Optional[dict] = None  # set by the runner / LiveSession: wall time, ms per frame
+        # one entry per keyframe: which condition fired (fraction / parallax /
+        # both, or "init" for the two keyframes an initialisation creates) and
+        # the values it saw -- tracking_report.keyframe_reasons
+        self.keyframe_reasons: List[Dict[str, Any]] = []
 
     # ------------------------------------------------------------------ public
     @property
@@ -425,6 +429,9 @@ class LiveTracker:
         seg.keyframes.append(Keyframe(frame_index, R, t, n_good))
         self.segments.append(seg)
         self._seg = seg
+        for kf_frame in (int(self._ref_frame_index), int(frame_index)):
+            self.keyframe_reasons.append({"frame_index": kf_frame, "segment": seg.index, "condition": "init",
+                                          "n_points": n_good, "n_essential_inliers": int(inl.sum())})
         for j, k in enumerate(idx):
             if accept[j]:
                 tr = self._tracks[k]
@@ -478,10 +485,24 @@ class LiveTracker:
         tracked_fraction = n_inliers / max(1, last_kf.n_map_tracked)
         kf_disp = [float(np.linalg.norm(tr.pt - tr.kf_pt)) for tr in self._tracks if tr.kf_index == last_ord]
         parallax_kf = float(np.median(kf_disp)) if kf_disp else 0.0
-        make_kf = (frame_index - last_kf.frame_index >= cfg.keyframe_min_gap and
-                   (tracked_fraction < cfg.keyframe_tracked_fraction or parallax_kf >= cfg.keyframe_min_parallax_px))
+        gap = frame_index - last_kf.frame_index
+        fraction_fired = tracked_fraction < cfg.keyframe_tracked_fraction
+        parallax_fired = parallax_kf >= cfg.keyframe_min_parallax_px
+        make_kf = gap >= cfg.keyframe_min_gap and (fraction_fired or parallax_fired)
         if make_kf:
             self._create_keyframe(gray, frame_index, R, t, n_inliers)
+            self.keyframe_reasons.append({
+                "frame_index": int(frame_index),
+                "segment": seg.index,
+                "condition": "both" if (fraction_fired and parallax_fired) else ("fraction" if fraction_fired else "parallax"),
+                "tracked_fraction": round(float(tracked_fraction), 4),
+                "tracked_fraction_threshold": cfg.keyframe_tracked_fraction,
+                "parallax_px": round(parallax_kf, 2),
+                "parallax_threshold_px": cfg.keyframe_min_parallax_px,
+                "gap": int(gap),
+                "n_inliers": int(n_inliers),
+                "n_map_tracked_at_last_kf": int(last_kf.n_map_tracked),
+            })
         return FrameResult(frame_index, TrackState.TRACKING, (R, t), n_tracked, n_inliers, rms, make_kf)
 
     def _create_keyframe(self, gray: np.ndarray, frame_index: int, R: np.ndarray, t: np.ndarray, n_inliers: int) -> None:
@@ -602,6 +623,7 @@ class LiveTracker:
             } for s in self.segments],
             "config": asdict(self.config),
             "timing": self.timing,
+            "keyframe_reasons": list(self.keyframe_reasons),
         }
 
     def export(self, run_dir: Path, video: Optional[str] = None) -> dict:
