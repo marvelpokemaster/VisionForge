@@ -12,6 +12,7 @@ Usage:
     python scripts/generate_synthetic_clip.py [--output PATH] [--frames N] [--fps FPS]
 """
 import argparse
+import sys
 import numpy as np
 import cv2
 from pathlib import Path
@@ -118,6 +119,55 @@ def render_frame(eye, target):
     return canvas
 
 
+H264_FOURCCS = {"avc1", "h264", "x264"}
+
+H264_HINT = (
+    "This OpenCV build cannot encode H.264 ({fourcc}): its FFmpeg has no built-in H.264 encoder and looks for "
+    "Cisco's openh264 DLL (download the openh264-<version>-win64.dll named in the warning above from "
+    "https://github.com/cisco/openh264/releases and put it on PATH), and no other backend took the job. "
+    "Alternatives: --fourcc VP80 --output <clip>.webm (VP8/WebM, needs a VP8-capable WebView/browser), or "
+    "transcode with ffmpeg: ffmpeg -i <clip>.mp4 -c:v libx264 -pix_fmt yuv420p <clip>_h264.mp4"
+)
+
+
+def open_writer(output_path: Path, fourcc: str, fps: float) -> cv2.VideoWriter:
+    """A VideoWriter for `fourcc`, or a SystemExit that says why not.
+
+    H.264 (avc1) is what every Android WebView / browser plays, but OpenCV's
+    pip wheels ship an FFmpeg without an H.264 encoder (it prints 'Failed to
+    load OpenH264 library' and 'Could not open codec libopenh264'). On
+    Windows the Media Foundation backend encodes H.264 natively, so for H.264
+    fourccs it is tried first and the FFmpeg noise is skipped."""
+    code = cv2.VideoWriter_fourcc(*fourcc)
+    size = (W, H)
+    if fourcc.lower() in H264_FOURCCS and sys.platform == "win32":
+        writer = cv2.VideoWriter(str(output_path), cv2.CAP_MSMF, code, fps, size)
+        if writer.isOpened():
+            return writer
+    writer = cv2.VideoWriter(str(output_path), code, fps, size)
+    if writer.isOpened():
+        return writer
+    if fourcc.lower() in H264_FOURCCS:
+        raise SystemExit(H264_HINT.format(fourcc=fourcc))
+    raise SystemExit(f"OpenCV could not open a VideoWriter for fourcc {fourcc!r} / {output_path.suffix}")
+
+
+def verify_written(output_path: Path, fourcc: str, n_frames: int) -> None:
+    """isOpened() can be True while the encoder silently writes nothing (seen
+    with an H.264 writer whose codec failed to initialise); re-read the file."""
+    cap = cv2.VideoCapture(str(output_path))
+    count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) if cap.isOpened() else 0
+    tag = int(cap.get(cv2.CAP_PROP_FOURCC)) if cap.isOpened() else 0
+    cap.release()
+    written = "".join(chr((tag >> (8 * i)) & 255) for i in range(4)).strip("\0") or "?"
+    if count < n_frames or output_path.stat().st_size < 1024:
+        msg = f"{output_path} re-reads as {count}/{n_frames} frames ({output_path.stat().st_size} bytes, codec {written!r})"
+        if fourcc.lower() in H264_FOURCCS:
+            msg += "\n" + H264_HINT.format(fourcc=fourcc)
+        raise SystemExit(msg)
+    print(f"Codec on disk: {written} (requested {fourcc})")
+
+
 def generate(output_path: Path, n_frames: int = 24, fps: float = 2.0, save_previews: bool = False,
              fourcc: str = "mp4v") -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,12 +183,11 @@ def generate(output_path: Path, n_frames: int = 24, fps: float = 2.0, save_previ
         target = np.array([0.0, ty, -0.5])
         frames.append(render_frame(eye, target))
 
-    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*fourcc), fps, (W, H))
-    if not writer.isOpened():
-        raise SystemExit(f"OpenCV could not open a VideoWriter for fourcc {fourcc!r} / {output_path.suffix}")
+    writer = open_writer(output_path, fourcc, fps)
     for frame in frames:
         writer.write(frame)
     writer.release()
+    verify_written(output_path, fourcc, len(frames))
 
     if save_previews:
         for idx in (0, n_frames // 4, n_frames // 2, 3 * n_frames // 4, n_frames - 1):
@@ -156,8 +205,10 @@ def main():
                                                                   "target sampling fps, so every frame is extracted)")
     parser.add_argument("--save-previews", action="store_true", help="Also save a few preview PNGs alongside the video")
     parser.add_argument("--fourcc", default="mp4v",
-                        help="VideoWriter codec (default mp4v = MPEG-4 part 2, which OpenCV reads but browsers do not play; "
-                             "use --fourcc VP80 with a .webm --output for the frontend's file source)")
+                        help="VideoWriter codec (default mp4v = MPEG-4 part 2, which OpenCV reads but browsers do not play). "
+                             "For the frontend's file source: --fourcc avc1 with a .mp4 --output (H.264, plays in every "
+                             "Android WebView; needs an H.264 encoder on this machine -- the script says so if there is "
+                             "none) or --fourcc VP80 with a .webm --output (VP8, needs a VP8-capable WebView)")
     args = parser.parse_args()
 
     generate(Path(args.output), n_frames=args.frames, fps=args.fps, save_previews=args.save_previews, fourcc=args.fourcc)

@@ -1,4 +1,5 @@
 import type { Session, Twin, QuestionResponse, Measurement } from "../types/twin";
+import { apiBase } from "./backend";
 
 export interface RoomMeasurementsResponse {
   length: Measurement | null;
@@ -7,17 +8,25 @@ export interface RoomMeasurementsResponse {
   floor_area: Measurement | null;
 }
 
-// Web/dev: same-origin "/api/...", proxied by Vite's dev server (see
-// vite.config.ts) to the FastAPI backend.
-// Native Android (Capacitor): there is no dev server to proxy through, so
-// we point directly at the backend's reachable URL, configured via env var
-// at build time (see .env.production).
-export const API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? "/api";
+// The base URL is read per call from lib/backend.ts (build default from
+// VITE_API_BASE_URL -- "/api" proxied by Vite in dev, the PC's URL in the
+// Android build -- or the runtime "Backend" override kept in localStorage).
+// Never cache it in a module constant: the user can change it at any time.
+
+/** A non-2xx reply, with the status so callers can treat a 404 differently. */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await fetch(`${apiBase()}${path}`);
   if (!res.ok) {
-    throw new Error(`GET ${path} failed: ${res.status} ${res.statusText}`);
+    throw new ApiError(`GET ${path} failed: ${res.status} ${res.statusText}`, res.status);
   }
   return (await res.json()) as T;
 }
@@ -35,17 +44,17 @@ export function getMeasurements(sessionId: string): Promise<RoomMeasurementsResp
 }
 
 export async function askQuestion(sessionId: string, question: string): Promise<QuestionResponse> {
-  const res = await fetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}/query`, {
+  const res = await fetch(`${apiBase()}/sessions/${encodeURIComponent(sessionId)}/query`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question })
   });
   if (!res.ok) {
-    throw new Error(`POST query failed: ${res.status} ${res.statusText}`);
+    throw new ApiError(`POST query failed: ${res.status} ${res.statusText}`, res.status);
   }
   return (await res.json()) as QuestionResponse;
 }
 
 export function cloudUrl(sessionId: string): string {
-  return `${API_BASE}/sessions/${encodeURIComponent(sessionId)}/cloud`;
+  return `${apiBase()}/sessions/${encodeURIComponent(sessionId)}/cloud`;
 }

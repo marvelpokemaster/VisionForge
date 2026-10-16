@@ -546,7 +546,8 @@ button; `Viewer3D` gained one optional prop, `cloudUrl`.
 * **Android**: `CAMERA` permission + `<uses-feature android.hardware.camera
   required=false>` in the manifest; `androidScheme: 'http'` keeps `ws://` from
   being mixed content; `npm run build && npx cap sync android` done.
-  **Untested on any emulator or phone** — see `docs/live_android_checklist.md`.
+  Emulator: done, see "Stage 1" below; **phone untested** — see
+  `docs/live_android_checklist.md`.
 
 ### Desktop verification (real Chrome, DevTools protocol, no extension)
 
@@ -613,7 +614,70 @@ session view, out of scope here: it loads twin and measurements together, so a
 failed live session shows the error instead of the twin's `stage_status`.)
 
 No physical webcam is attached to this PC, so a real camera was not tried.
-**Emulator and phone are untested.**
+
+### Stage 1 — Android emulator (human test, 2026-10-16)
+
+Android Studio emulator, `VITE_API_BASE_URL=http://10.0.2.2:8000`, uvicorn on
+the PC (`docs/live_android_checklist.md` §1):
+
+* CAMERA permission prompt shown, getUserMedia OK on the virtual camera.
+* `WS /live/<id>` accepted; strip live; **254 features tracked**; banner stayed
+  **INITIALIZING** — the virtual camera is static (no parallax), which is the
+  tracker's honest answer, not a bug.
+* **0.2 fps delivered**: the emulator's WebView JPEG-encodes the canvas in
+  software, so nearly every pump tick was a `busy` skip. The pump never queued
+  and counted every skip, as designed; the figure is the emulator's.
+* Stop → `finished` → session list with the session marked `live_tracking:
+  failed` / `twin: success`.
+
+Three issues, fixed in step 6 prep (below): (a) the session view showed
+`GET …/measurements failed: 404` instead of the twin's `stage_status`; (b)
+the VP8/WebM test clip did not decode in the emulator's WebView ("no
+supported source was found"); (c) Android back from the file picker exited
+the app.
+
+### Step 6 prep (phone)
+
+* **Runtime backend URL.** `lib/backend.ts::apiBase()` is the one function
+  the REST client (`lib/api.ts`), the live socket / live cloud
+  (`live/wsUrl.ts::currentLive*`) and the PLY loader read the base URL
+  through: the build default `VITE_API_BASE_URL` or an override kept in
+  `localStorage["visionforge.apiBase"]` (every access in try/catch). The
+  **Backend** field (`components/BackendField.tsx`, on the Live header and
+  the sessions sidebar) sets it, shows `using <url>`, and probes
+  `GET /sessions` with a 5 s timeout: `connection: ok (N sessions, M ms)` /
+  `failed: <reason>` + Retry. Emulator (`10.0.2.2`) ↔ phone (PC LAN IP)
+  without a rebuild; `.env.production` now defaults to
+  `http://192.168.1.37:8000` (the PC's Wi-Fi IPv4), present twice in `dist/`.
+  The session list and the selected session reload when the base changes.
+* **(a)** `lib/sessionLoad.ts::loadSessionView`: twin first, then
+  measurements; `ApiError` (new, carries the status) 404 on measurements
+  keeps the twin and yields a notice — `noGeometryNotice` says
+  *"no geometry: live tracking failed (never initialised)"* when
+  `stage_status.live_tracking == failed`, otherwise names the failed /
+  running stages. The session view renders that, the stage list, the live
+  frame/keyframe/map counts and the provenance footer in place of the viewer.
+* **(b)** `generate_synthetic_clip.py --fourcc avc1`: OpenCV's wheel has no
+  H.264 encoder in its FFmpeg (it wants Cisco's openh264 DLL), but Windows
+  Media Foundation does, so H.264 fourccs try `CAP_MSMF` first — on this PC
+  that writes real H.264 (`Codec on disk: h264`;
+  `data/input/synthetic_box_room_30fps_h264.mp4`, 360 frames, 20 MB). When no
+  backend can, the script exits with the DLL / `ffmpeg -c:v libx264`
+  alternatives; it also re-reads the output and fails on a short frame count
+  instead of leaving an empty file. The WebM clip needs a VP8-capable WebView.
+* **(c)** `@capacitor/app` **8.1.2** (pinned) `backButton` listener in
+  `lib/backButton.ts` (`resolveBack`, pure, tested): a running live session →
+  Stop (its `finished` reply opens the session view); the Live screen or a
+  session → the sessions list; the sessions list → `App.exitApp()`. No-op on
+  the web. `cap sync` registered the plugin (`capacitor.settings.gradle`,
+  `capacitor.build.gradle`).
+* **Tests:** vitest 35 → **53** (`backend.test.ts` 8, `sessionLoad.test.ts`
+  5, `backButton.test.ts` 3, `wsUrl.test.ts` +1 for the override reaching
+  REST and the socket through the one function); backend 176 unchanged;
+  `npm run build` clean.
+
+**Phone untested** — the stage 2 procedure and what to paste back are in
+`docs/live_android_checklist.md` §3–4.
 
 ## 7. Real footage
 

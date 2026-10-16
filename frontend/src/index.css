@@ -412,3 +412,92 @@ button.danger {
     font-size: 32px;
   }
 }
+
+/* ------------------------------------------------- backend field + probe */
+.backend-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.backend-field input {
+  width: 15em;
+  max-width: 100%;
+  background: #16181d;
+  color: #e6e6e6;
+  border: 1px solid #23262e;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-family: ui-monospace, monospace;
+}
+
+button.small {
+  padding: 3px 8px;
+  border: 1px solid #2f3340;
+  border-radius: 4px;
+  background: #1c1f26;
+  color: #e6e6e6;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+button.small:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.backend-effective {
+  color: #9aa0ab;
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+}
+
+.backend-probe-checking {
+  color: #9aa0ab;
+}
+
+.backend-probe-ok {
+  color: #3fbf7f;
+  font-weight: 600;
+}
+
+.backend-probe-failed {
+  color: #ff6b6b;
+  font-weight: 600;
+}
+
+.live-header .backend-field {
+  margin-bottom: 0;
+  margin-left: auto;
+}
+
+/* --------------------------------------- session view without geometry */
+.session-notice {
+  color: #e0b341;
+  font-size: 14px;
+  margin: 8px 12px;
+}
+
+.session-notice-block {
+  padding: 16px;
+}
+
+.session-notice-block .stage-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  color: #e6e6e6;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
+
+.session-notice-block .stage-failed {
+  color: #ff6b6b;
+}
+
+.session-notice-block .stage-success {
+  color: #3fbf7f;
+}

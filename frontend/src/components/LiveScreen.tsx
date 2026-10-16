@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Viewer3D, { type Toggles } from "./Viewer3D";
-import { API_BASE } from "../lib/api";
 import { navigate } from "../lib/route";
+import { registerBackGuard } from "../lib/backButton";
+import BackendField from "./BackendField";
 import { CameraSource, FileSource, type FrameSource } from "../live/source";
 import { FramePump } from "../live/pump";
 import { makeJpegEncoder, encodedSize } from "../live/encode";
-import { liveSocketUrl, liveCloudUrl } from "../live/wsUrl";
+import { currentLiveSocketUrl, currentLiveCloudUrl } from "../live/wsUrl";
 import {
   addClientSkips,
   initialSummary,
@@ -72,6 +73,17 @@ export default function LiveScreen() {
 
   useEffect(() => teardown, [teardown]);
 
+  // Android back while a session runs = Stop (the finished reply then opens
+  // the session view); otherwise lib/backButton.ts returns to the sessions list.
+  useEffect(() => {
+    if (!running) return;
+    return registerBackGuard(() => {
+      stop();
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running]);
+
   // fold the pump's client-side skips into the summary a few times a second,
   // and stop by itself when a file source has played to its end
   useEffect(() => {
@@ -122,7 +134,7 @@ export default function LiveScreen() {
     const sent = encodedSize(size, MAX_WIDTH);
     setSendSize(sent);
 
-    const url = liveSocketUrl(API_BASE, sessionId, window.location);
+    const url = currentLiveSocketUrl(sessionId, window.location);
     const ws = new WebSocket(url);
     socketRef.current = ws;
     const pump = new FramePump(ws, makeJpegEncoder(source, MAX_WIDTH, JPEG_QUALITY), { fps: FPS });
@@ -186,6 +198,7 @@ export default function LiveScreen() {
           ← Sessions
         </button>
         <h2>Live tracking</h2>
+        <BackendField disabled={running || stopping} />
       </header>
 
       <div className="live-controls">
@@ -259,7 +272,7 @@ export default function LiveScreen() {
               toggles={toggles}
               selectedPlaneId={null}
               onSelectPlane={() => undefined}
-              cloudUrl={liveCloudUrl(API_BASE, sessionId)}
+              cloudUrl={currentLiveCloudUrl(sessionId)}
             />
           ) : (
             <p className="muted live-placeholder">

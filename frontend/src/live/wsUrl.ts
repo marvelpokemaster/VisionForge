@@ -1,7 +1,11 @@
 // The live socket must reach the same backend as the REST calls in lib/api.ts,
-// so its URL is derived from the SAME base: an absolute http(s) base becomes
-// ws(s) on the same host/path; a relative base (the "/api" that Vite proxies in
-// dev) becomes ws(s)://<current host>/api, matching the page's own scheme.
+// so its URL is derived from the SAME base -- apiBase() in lib/backend.ts, the
+// one function that knows about the build default and the runtime override.
+// An absolute http(s) base becomes ws(s) on the same host/path; a relative
+// base (the "/api" that Vite proxies in dev) becomes ws(s)://<current
+// host>/api, matching the page's own scheme.
+import { apiBase } from "../lib/backend";
+
 export interface LocationLike {
   protocol: string; // "http:" | "https:"
   host: string; // host[:port]
@@ -24,4 +28,14 @@ export function liveSocketUrl(apiBase: string, sessionId: string, loc: LocationL
 /** The active segment's current map, served by GET /live/{id}/cloud. */
 export function liveCloudUrl(apiBase: string, sessionId: string): string {
   return `${apiBase.replace(/\/+$/, "")}/live/${encodeURIComponent(sessionId)}/cloud`;
+}
+
+/** The two above, against the backend currently in effect (default or the
+ * runtime override) -- what the Live screen actually connects to. */
+export function currentLiveSocketUrl(sessionId: string, loc: LocationLike): string {
+  return liveSocketUrl(apiBase(), sessionId, loc);
+}
+
+export function currentLiveCloudUrl(sessionId: string): string {
+  return liveCloudUrl(apiBase(), sessionId);
 }
