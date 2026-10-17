@@ -91,9 +91,9 @@ export default function FurniturePanel({
       const val = await validateFurniturePlacement(sessionId, initialItem, placedFurniture);
       initialItem.valid = val.valid;
       initialItem.reason = val.reason;
-    } catch {
-      initialItem.valid = true;
-      initialItem.reason = "Clear";
+    } catch (err: any) {
+      initialItem.valid = false;
+      initialItem.reason = err.message || "Validation error";
     }
 
     onPlacedFurnitureChange([...placedFurniture, initialItem]);
@@ -117,9 +117,9 @@ export default function FurniturePanel({
       const val = await validateFurniturePlacement(sessionId, item, otherItems);
       item.valid = val.valid;
       item.reason = val.reason;
-    } catch {
-      item.valid = true;
-      item.reason = "Clear";
+    } catch (err: any) {
+      item.valid = false;
+      item.reason = err.message || "Validation error";
     }
 
     updated[index] = item;

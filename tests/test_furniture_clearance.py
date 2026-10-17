@@ -171,3 +171,61 @@ def test_clearance_engine_auto_pack():
     assert pack["occupied_area_m2"] > 0
     assert pack["usable_free_area_m2"] <= pack["floor_area_m2"]
     assert len(pack["placements"]) == pack["max_count"]
+
+
+def test_furniture_flush_boundary_contact():
+    """Verify that furniture placed flush against any room boundary wall is valid."""
+    # Room [-3, 3] in X, [-2, 2] in Z
+    room_model = _make_box_room_model(length=6.0, width=4.0)
+    engine = FloorClearanceEngine(room_model)
+
+    # Work desk: 1.4m length (X) x 0.7m width (Z)
+    # Half dimensions: length=0.7, width=0.35
+
+    # 1. Flush against left wall (x = -3.0): center_x = -3.0 + 0.7 = -2.3
+    res_left = engine.validate_placement("work_desk", center_x=-2.3, center_z=0.0, angle_deg=0.0)
+    assert res_left["valid"] is True, f"Failed flush left: {res_left.get('reason')}"
+
+    # 2. Flush against right wall (x = 3.0): center_x = 3.0 - 0.7 = 2.3
+    res_right = engine.validate_placement("work_desk", center_x=2.3, center_z=0.0, angle_deg=0.0)
+    assert res_right["valid"] is True, f"Failed flush right: {res_right.get('reason')}"
+
+    # 3. Flush against bottom wall (z = -2.0): center_z = -2.0 + 0.35 = -1.65
+    res_bottom = engine.validate_placement("work_desk", center_x=0.0, center_z=-1.65, angle_deg=0.0)
+    assert res_bottom["valid"] is True, f"Failed flush bottom: {res_bottom.get('reason')}"
+
+    # 4. Flush against top wall (z = 2.0): center_z = 2.0 - 0.35 = 1.65
+    res_top = engine.validate_placement("work_desk", center_x=0.0, center_z=1.65, angle_deg=0.0)
+    assert res_top["valid"] is True, f"Failed flush top: {res_top.get('reason')}"
+
+    # 5. Over-the-wall protrusion (1cm beyond left wall): center_x = -2.31
+    res_protrude = engine.validate_placement("work_desk", center_x=-2.31, center_z=0.0, angle_deg=0.0)
+    assert res_protrude["valid"] is False
+
+
+def test_furniture_rotated_and_concave_room():
+    """Verify clearance for rotated furniture and L-shaped concave rooms."""
+    # L-shaped room: 4x4 with top-right 2x2 corner missing
+    # Vertices: [0,0], [4,0], [4,2], [2,2], [2,4], [0,4]
+    l_poly = [[0.0, 0.0], [4.0, 0.0], [4.0, 2.0], [2.0, 2.0], [2.0, 4.0], [0.0, 4.0]]
+    room_model = {
+        "coordinate_system": {"up_axis": [0.0, 1.0, 0.0]},
+        "scale": {"metric_available": True, "scale_factor": 1.0},
+        "room": {
+            "length": 4.0,
+            "width": 4.0,
+            "height": 2.5,
+            "floor_area": 12.0,
+            "bounding_polygon_room": l_poly,
+        },
+        "planes": [],
+    }
+    engine = FloorClearanceEngine(room_model)
+
+    # 1. Rotated 45 degrees safely inside bottom wing: center (1.0, 1.0)
+    res_rot = engine.validate_placement("work_desk", center_x=1.0, center_z=1.0, angle_deg=45.0)
+    assert res_rot["valid"] is True
+
+    # 2. Placed across the missing L-corner (bridging over the cutout): center (2.0, 2.0)
+    res_bridge = engine.validate_placement("bed_single", center_x=2.0, center_z=2.0, angle_deg=45.0)
+    assert res_bridge["valid"] is False

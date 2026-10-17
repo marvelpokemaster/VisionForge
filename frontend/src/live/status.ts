@@ -95,7 +95,7 @@ export function twinForRedraw(prevTwin: Twin | null, msg: Pick<LiveStatusMessage
 /** "no geometry yet" explanation for a twin whose room model has no planes. */
 export function noGeometryReason(twin: Twin | null): string | null {
   if (!twin || !twin.room_model) return null;
-  if (twin.room_model.planes.length > 0) return null;
+  if (twin.room_model.planes && twin.room_model.planes.length > 0) return null;
   return twin.provenance.reason ?? "no planes fitted";
 }
 

@@ -137,14 +137,39 @@ def get_oriented_box_corners(
     return world_corners.tolist()
 
 
+def point_on_segment_2d(p: np.ndarray, a: np.ndarray, b: np.ndarray, tol: float = 1e-5) -> bool:
+    """Check if point p lies on line segment a-b within tolerance."""
+    ab = b - a
+    ap = p - a
+    len_ab = np.linalg.norm(ab)
+    if len_ab < 1e-12:
+        return float(np.linalg.norm(ap)) <= tol
+    cross = ab[0] * ap[1] - ab[1] * ap[0]
+    if abs(cross) / len_ab > tol:
+        return False
+    dot = np.dot(ap, ab)
+    return -tol <= dot <= np.dot(ab, ab) + tol
+
+
 def point_in_polygon_2d(point: List[float], polygon: List[List[float]]) -> bool:
-    """Ray-casting algorithm to test if a point (x, z) is inside a 2D polygon."""
-    x, z = point[0], point[1]
-    n = len(polygon)
+    """Test if a point (x, z) is inside or on the boundary of a 2D polygon."""
+    p_arr = np.array([float(point[0]), float(point[1])])
+    poly_arr = np.asarray(polygon, dtype=float)
+    n = len(poly_arr)
+    if n < 3:
+        return False
+
+    # 1. Boundary contact check (points flush against a wall segment are valid)
+    for i in range(n):
+        if point_on_segment_2d(p_arr, poly_arr[i], poly_arr[(i + 1) % n]):
+            return True
+
+    # 2. Ray-casting algorithm for interior
+    x, z = float(point[0]), float(point[1])
     inside = False
-    p1x, p1z = polygon[0][0], polygon[0][1]
+    p1x, p1z = poly_arr[0][0], poly_arr[0][1]
     for i in range(1, n + 1):
-        p2x, p2z = polygon[i % n][0], polygon[i % n][1]
+        p2x, p2z = poly_arr[i % n][0], poly_arr[i % n][1]
         if min(p1z, p2z) < z <= max(p1z, p2z):
             if x <= max(p1x, p2x):
                 if p1z != p2z:
@@ -155,14 +180,26 @@ def point_in_polygon_2d(point: List[float], polygon: List[List[float]]) -> bool:
     return inside
 
 
+def segments_cross_interior_2d(
+    p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, p4: np.ndarray, eps: float = 1e-4
+) -> bool:
+    """Check if line segment p1-p2 strictly crosses line segment p3-p4 at an interior point."""
+    d1 = p2 - p1
+    d2 = p4 - p3
+    det = d1[0] * d2[1] - d1[1] * d2[0]
+    if abs(det) < 1e-10:
+        return False
+    dp = p3 - p1
+    t = (dp[0] * d2[1] - dp[1] * d2[0]) / det
+    u = (dp[0] * d1[1] - dp[1] * d1[0]) / det
+    return (eps < t < 1.0 - eps) and (eps < u < 1.0 - eps)
+
+
 def segments_intersect_2d(
     p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, p4: np.ndarray
 ) -> bool:
-    """Check if line segment p1-p2 intersects line segment p3-p4."""
-    def ccw(a, b, c):
-        return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
-
-    return ccw(p1, p3, p4) != ccw(p2, p3, p4) and ccw(p1, p2, p3) != ccw(p1, p2, p4)
+    """Check if line segment p1-p2 intersects line segment p3-p4 (includes interior crossing)."""
+    return segments_cross_interior_2d(p1, p2, p3, p4)
 
 
 def polygons_intersect_2d(poly1: List[List[float]], poly2: List[List[float]]) -> bool:
@@ -200,12 +237,12 @@ def box_inside_polygon_2d(
     box_corners: List[List[float]], polygon: List[List[float]]
 ) -> bool:
     """Check if an oriented box lies entirely inside a polygon without edge crossings."""
-    # 1. All 4 corners must be strictly inside the polygon
+    # 1. All 4 corners must be inside or on the boundary of the polygon
     for corner in box_corners:
         if not point_in_polygon_2d(corner, polygon):
             return False
 
-    # 2. No box edge may intersect any polygon edge
+    # 2. No box edge may cross through any polygon boundary edge
     b_pts = np.asarray(box_corners, dtype=float)
     p_pts = np.asarray(polygon, dtype=float)
     n_b = len(b_pts)
@@ -215,7 +252,7 @@ def box_inside_polygon_2d(
         b1, b2 = b_pts[i], b_pts[(i + 1) % n_b]
         for j in range(n_p):
             p1, p2 = p_pts[j], p_pts[(j + 1) % n_p]
-            if segments_intersect_2d(b1, b2, p1, p2):
+            if segments_cross_interior_2d(b1, b2, p1, p2):
                 return False
 
     return True

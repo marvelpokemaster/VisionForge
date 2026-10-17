@@ -1,48 +1,61 @@
 # VisionForge — Session Handoff & Immediate Continuation Point
 
 ## 1. Current Phase & Task
-* **Current Phase:** Phase 4 (Complete & Ready for End-to-End Verification).
+* **Current Phase:** Phase 4 (Mobile Room Measurement, Floor Clearance & Furniture Placement — Verified on Physical Android Device).
 * **Current Task:** 
   1. Completed Phase 4.1: Metric Scale Calibration Engine (`src/visionforge/spatial/calibration.py`).
   2. Completed Phase 4.2: Classical Floor Clearance Engine (`src/visionforge/spatial/clearance.py`).
   3. Completed Phase 4.3: Interactive 3D Furniture Placement & "Can It Fit?" Auto-Pack in Frontend (`FurniturePanel.tsx`, `Viewer3D.tsx`, `furnitureApi.ts`).
-  4. Full test suite passing (203 Python tests, 68 Vitest tests, clean build).
+  4. Performed Full Physical Android Verification Gate on Redmi Note 13 5G (`rwkbgmhir4c6vch6`).
+  5. Identified and fixed physical device runtime defects (optional chaining on `room_model.planes`, safe `boundary_room`/`centroid_room` handling in `Viewer3D`, `CoordinateSystem.origin` fallback in `frames.ts`, `InspectPanel` optional `extent`/`area`).
+  6. Full test suite passing (206 Python tests, 70 Vitest tests, clean build, successful Android APK assembly).
 
 ---
 
 ## 2. Git & Repository Context
-* **Current Branch:** `main` (ahead of `origin/main` by 1 commit + Phase 4 working tree).
-* **Working Tree State:** All Phase 4 code, types, components, and tests staged/ready for commit.
+* **Current Branch:** `feature/phase4-furniture-scale` (tracked against `origin/feature/phase4-furniture-scale`).
+* **Working Tree State:** All Phase 4 code, types, components, runtime fixes, and tests verified and ready for commit.
 
 ---
 
 ## 3. Files Changed in this Session
-* `src/visionforge/spatial/clearance.py`: Classical 2D Separating Axis Theorem (SAT) collision, ray-casting point-in-polygon, furniture catalog with metric dimensions, floor clearance validation, and auto-pack fitting engine.
-* `src/visionforge/spatial/calibration.py`: Metric scale calibration engine scaling room dimensions, boundary vertices, planes, extents, and digital twins by a known physical measurement.
-* `src/visionforge/api/app.py`: Added furniture endpoints (`/furniture/catalog`, `/sessions/{id}/furniture/validate`, `/sessions/{id}/furniture/auto_pack`, `/sessions/{id}/scale/calibrate`).
-* `frontend/src/types/furniture.ts` & `frontend/src/types/twin.ts`: Type definitions for furniture items, placed items, collision results, auto-pack plans, and scale calibration.
-* `frontend/src/lib/furnitureApi.ts` & `furnitureApi.test.ts`: Client API methods for furniture validation, auto-pack, and scale calibration.
+* `src/visionforge/spatial/clearance.py`: Classical 2D SAT collision, ray-casting point-in-polygon, boundary contact checking for flush wall placements, interior segment crossing, furniture catalog with metric dimensions, and auto-pack fitting engine.
+* `src/visionforge/spatial/calibration.py`: Metric scale calibration engine scaling room dimensions, boundary vertices, planes, extents, and digital twins with hardened input validation (NaN, Inf, negative, range checks).
+* `frontend/src/types/twin.ts` & `frontend/src/types/furniture.ts`: Type definitions for furniture items, placed items, collision results, auto-pack plans, and robust optional fields on Plane and RoomModel.
+* `frontend/src/lib/sessionLoad.ts` & `frontend/src/live/status.ts`: Optional chaining on `twin?.room_model?.planes` to prevent runtime crashes on sessions without planar geometry.
+* `frontend/src/lib/frames.ts`: Fallback origin `[0, 0, 0]` and axes in `toRoomFrame` and `toRoomFrameDirection`.
+* `frontend/src/lib/polygon3d.ts`: Nullable boundary handling in `polygonToFilledGeometry` and `polygonToLineLoopGeometry`.
+* `frontend/src/components/Viewer3D.tsx`: Guarded plane rendering against missing boundaries/centroids and safe `floorY` calculation.
+* `frontend/src/components/InspectPanel.tsx`: Safe rendering of optional `extent` and `area`.
 * `frontend/src/components/FurniturePanel.tsx`: Interactive control panel for room scale calibration, furniture placement, step translations/rotations, collision feedback, and one-click "Can It Fit? (Auto-Pack)".
-* `frontend/src/components/Viewer3D.tsx`: Three.js rendering of 3D furniture boxes on the floor plane ($Y=0$) with dynamic green (safe) / red (collision) bounding boxes, wireframes, and text badges.
-* `frontend/src/App.tsx`: Wired FurniturePanel toggle and state into the main digital twin workspace.
-* Tests added:
-  * `tests/test_furniture_clearance.py`: Comprehensive classical computational geometry tests for SAT intersection, containment, clearance validation, and greedy auto-packing.
-  * `tests/test_scale_calibration.py`: Verification of uniform metric scaling on 3D vertices, extents, and room models.
-  * `tests/test_api.py`: Integration tests for all furniture and scale API endpoints.
-  * `frontend/src/lib/furnitureApi.test.ts`: Vitest frontend tests for API client interactions.
+* `frontend/.env.production`: Configured default backend IP to LAN IP `http://192.168.1.43:8000`.
+* Tests added / updated:
+  * `tests/test_furniture_clearance.py`: Added tests for flush boundary contact, wall protrusion rejection, rotated furniture, and concave L-shaped rooms.
+  * `tests/test_scale_calibration.py`: Added tests for input validation (negative, NaN, Inf, out-of-range, malformed points).
+  * `frontend/src/lib/furnitureApi.test.ts`: Vitest tests for API client interactions and error handling.
+  * `frontend/src/lib/sessionLoad.test.ts`: Test coverage for undefined `room_model`.
 
 ---
 
 ## 4. Commands Executed & Actual Results
-1. `source venv/bin/activate && PYTHONPATH=src pytest`: **203 passed, 1 skipped, 0 failed (100% green)**.
-2. `proxychains npm test -- --run` (in `frontend/`): **12 test files, 68 passed tests (100% green)**.
-3. `proxychains npm run build` (in `frontend/`): **Clean production build (0 errors)**.
-4. `proxychains npx cap sync android` (in `frontend/`): **Capacitor 8 web assets synchronized to Android app**.
+1. `source venv/bin/activate && PYTHONPATH=src pytest -q`: **206 passed, 1 skipped, 0 failed in 20.36s (100% green)**.
+2. `proxychains npm test -- --run` (in `frontend/`): **12 test files, 70 passed in 507ms (100% green)**.
+3. `proxychains npm run build` (in `frontend/`): **Clean production build in 1.57s (0 errors)**.
+4. `proxychains npx cap sync android` (in `frontend/`): **Capacitor 8 web assets synchronized to Android app in 0.045s**.
+5. `ANDROID_HOME=... ./gradlew assembleDebug`: **BUILD SUCCESSFUL in 1s**.
+6. `adb -s rwkbgmhir4c6vch6 install -r app-debug.apk`: **Success**.
+7. Physical Device Live Execution on Redmi Note 13 5G:
+   * Sessions List loaded `final_demo` via HTTP bridge (`192.168.1.43:8000`).
+   * 3D Three.js viewer rendered coordinates, plane wireframes, and orbit controls.
+   * "+ Add" furniture added a Queen Bed (2.1m x 1.6m), rendered bounding box in 3D viewer, and properly reported boundary clearance status.
+   * "Calibrate" calibrated room width to 3.5m, updating provenance to `✓ Metric (1 unit = 1.11m)`.
+   * "Live tracking" navigation switched screens cleanly and back navigation returned without errors.
 
 ---
 
 ## 5. Outstanding Failures & Investigations
-* **Zero test failures.** All 203 Python tests and 68 frontend tests are green.
+* **Zero test failures.** All 206 Python tests and 70 frontend tests are green.
+* Zero external neural network dependencies; strictly classical computational geometry and classical SLAM.
 * Zero external neural network dependencies; strictly classical computational geometry and classical SLAM.
 
 ---

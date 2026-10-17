@@ -21,12 +21,17 @@ def calibrate_room_model_scale(
     pt_b: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
     """Return a new room_model dictionary with metric scale applied."""
-    if known_distance_meters <= 0:
-        raise ValueError("known_distance_meters must be strictly positive.")
+    import math
+    if math.isnan(known_distance_meters) or math.isinf(known_distance_meters) or known_distance_meters <= 0.0:
+        raise ValueError("known_distance_meters must be a finite, strictly positive number.")
+    if known_distance_meters < 0.05 or known_distance_meters > 500.0:
+        raise ValueError(
+            f"known_distance_meters ({known_distance_meters}m) is outside plausible room range [0.05m, 500m]."
+        )
 
     model = copy.deepcopy(room_model)
     prev_scale = float(model.get("scale", {}).get("scale_factor", 1.0))
-    if prev_scale <= 0:
+    if prev_scale <= 0 or math.isnan(prev_scale) or math.isinf(prev_scale):
         prev_scale = 1.0
 
     room = model.get("room", {})
@@ -36,19 +41,25 @@ def calibrate_room_model_scale(
     unscaled_floor_area = float(room.get("floor_area") or 0.0) / (prev_scale ** 2)
 
     if reference_type == "room_width":
-        if unscaled_width <= 0:
+        if unscaled_width <= 0 or math.isnan(unscaled_width):
             raise ValueError("Room width is unavailable or zero for calibration.")
         scale_factor = known_distance_meters / unscaled_width
 
     elif reference_type == "room_length":
-        if unscaled_length <= 0:
+        if unscaled_length <= 0 or math.isnan(unscaled_length):
             raise ValueError("Room length is unavailable or zero for calibration.")
         scale_factor = known_distance_meters / unscaled_length
 
     elif reference_type == "two_points":
         if pt_a is None or pt_b is None:
             raise ValueError("Two points pt_a and pt_b are required for 'two_points' calibration.")
-        raw_dist = float(np.linalg.norm(np.array(pt_a) - np.array(pt_b))) / prev_scale
+        if len(pt_a) != 3 or len(pt_b) != 3:
+            raise ValueError("Reference points pt_a and pt_b must each have exactly 3 coordinates [X, Y, Z].")
+        arr_a = np.asarray(pt_a, dtype=float)
+        arr_b = np.asarray(pt_b, dtype=float)
+        if not np.all(np.isfinite(arr_a)) or not np.all(np.isfinite(arr_b)):
+            raise ValueError("Reference point coordinates must be finite numbers.")
+        raw_dist = float(np.linalg.norm(arr_a - arr_b)) / prev_scale
         if raw_dist <= 1e-6:
             raise ValueError("Distance between reference points is zero.")
         scale_factor = known_distance_meters / raw_dist

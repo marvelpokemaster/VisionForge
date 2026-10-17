@@ -17,7 +17,7 @@ export type PlaneType = "floor" | "wall" | "ceiling" | "unknown";
 export interface CoordinateSystem {
   up_axis: Vec3;
   horizontal_axes: [Vec3, Vec3];
-  origin: Vec3;
+  origin?: Vec3;
 }
 
 export interface Scale {
@@ -30,11 +30,11 @@ export interface RoomMeasurements {
   width: number;
   height: number;
   floor_area: number;
-  length_method: string | null;
-  width_method: string | null;
-  height_method: string | null;
-  floor_area_method: string | null;
-  bounding_polygon_room: Vec2[];
+  length_method?: string | null;
+  width_method?: string | null;
+  height_method?: string | null;
+  floor_area_method?: string | null;
+  bounding_polygon_room?: Vec2[];
 }
 
 export interface InPlaneAxes {
@@ -54,31 +54,31 @@ export interface Plane {
   normal: Vec3;
   support: number;
   centroid: Vec3;
-  centroid_room: Vec3;
-  in_plane_axes: InPlaneAxes;
-  extent: PlaneExtent;
-  area: number;
-  boundary: Vec3[];
-  boundary_room: Vec3[];
-  ply_path: string | null;
+  centroid_room?: Vec3 | null;
+  in_plane_axes?: InPlaneAxes;
+  extent?: PlaneExtent;
+  area?: number;
+  boundary?: Vec3[] | null;
+  boundary_room?: Vec3[] | null;
+  ply_path?: string | null;
 }
 
 export interface PlaneIntersection {
   plane_a: string;
   plane_b: string;
-  point: Vec3;
-  direction: Vec3;
-  segment: [Vec3, Vec3];
-  point_room: Vec3;
-  segment_room: [Vec3, Vec3];
+  point?: Vec3;
+  direction?: Vec3;
+  segment?: [Vec3, Vec3];
+  point_room?: Vec3;
+  segment_room?: [Vec3, Vec3];
 }
 
 export interface RoomModel {
-  coordinate_system: CoordinateSystem | null;
-  scale: Scale;
-  room: RoomMeasurements;
+  coordinate_system?: CoordinateSystem | null;
+  scale?: Scale;
+  room?: RoomMeasurements;
   planes: Plane[];
-  intersections: PlaneIntersection[];
+  intersections?: PlaneIntersection[];
 }
 
 export interface CameraPose {

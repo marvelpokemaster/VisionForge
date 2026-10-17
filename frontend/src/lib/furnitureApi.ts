@@ -44,7 +44,8 @@ export async function validateFurniturePlacement(
     }),
   });
   if (!res.ok) {
-    throw new Error(`Validation request failed: ${res.statusText}`);
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `Validation request failed: ${res.statusText}`);
   }
   return res.json();
 }
@@ -65,7 +66,8 @@ export async function autoPackFurniture(
     }),
   });
   if (!res.ok) {
-    throw new Error(`Auto pack request failed: ${res.statusText}`);
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `Auto pack request failed: ${res.statusText}`);
   }
   return res.json();
 }

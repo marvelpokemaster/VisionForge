@@ -3,17 +3,19 @@
 ## 1. Executive Summary
 VisionForge is a **purely classical computer vision** monocular 3D room reconstruction and digital twin platform.
 
-* **Repository State:** Branch `main`, HEAD commit `8c418f3` + Phase 4 furniture clearance & metric scale implementation.
+* **Repository State:** Branch `feature/phase4-furniture-scale`, HEAD commit `3e245fb` + physical device runtime hardening & bug fixes.
 * **Testing Status:**
-  * **Backend (Python):** 203 passed, 1 skipped, 0 failed (100% green).
-  * **Frontend (Vitest):** 12 test files, 68 passed (100% green).
+  * **Backend (Python):** 206 passed, 1 skipped, 0 failed (100% green in 20.36s).
+  * **Frontend (Vitest):** 12 test files, 70 passed (100% green in 507ms).
   * **Build:** Frontend builds cleanly (`proxychains npm run build`).
   * **Mobile Sync:** Capacitor 8 synced (`proxychains npx cap sync android`).
+  * **Android Build:** `BUILD SUCCESSFUL in 1s` (`assembleDebug`).
+  * **Physical Device:** Installed and verified on physical Redmi Note 13 5G (`rwkbgmhir4c6vch6`) with real-time UI interactions, 3D viewing, furniture placement, scale calibration, and live tracking navigation.
 * **Milestone Reached:** 
   * Phase 1: Ingestion & Offline SfM (Complete & Verified).
   * Phase 2: Batch Geometry, Scene Graph, Digital Twin, Three.js Web Viewer (Complete & Verified).
-  * Phase 3: Real-Time Live Monocular Tracking over WebSocket & Android Streaming (Complete & Verified on iQOO Neo 7).
-  * Phase 4: Metric Scale Calibration, 2D Floor Clearance Engine, 3D Interactive Furniture Placement & "Can It Fit?" Auto-Pack Analyzer (Complete & Verified).
+  * Phase 3: Real-Time Live Monocular Tracking over WebSocket & Android Streaming (Complete & Verified on physical hardware).
+  * Phase 4: Metric Scale Calibration, 2D Floor Clearance Engine, 3D Interactive Furniture Placement & "Can It Fit?" Auto-Pack Analyzer (Complete & Verified on physical device).
 
 ---
 

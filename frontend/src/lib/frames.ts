@@ -18,11 +18,11 @@ import type { CoordinateSystem, Vec3, Vec4 } from "../types/twin";
  */
 export function toRoomFrame(point: Vec3, coordSystem: CoordinateSystem): Vec3 {
   const [px, py, pz] = point;
-  const [ox, oy, oz] = coordSystem.origin;
+  const [ox, oy, oz] = coordSystem.origin ?? [0, 0, 0];
   const rel: Vec3 = [px - ox, py - oy, pz - oz];
 
-  const [xAxis, zAxis] = coordSystem.horizontal_axes;
-  const upAxis = coordSystem.up_axis;
+  const [xAxis, zAxis] = coordSystem.horizontal_axes ?? [[1, 0, 0], [0, 0, 1]];
+  const upAxis = coordSystem.up_axis ?? [0, 1, 0];
 
   return [dot3(rel, xAxis), dot3(rel, upAxis), dot3(rel, zAxis)];
 }
@@ -51,8 +51,8 @@ function dot3(a: Vec3, b: Vec3): number {
  * vector (no origin subtraction) -- used for camera orientation, not
  * position. */
 export function toRoomFrameDirection(direction: Vec3, coordSystem: CoordinateSystem): Vec3 {
-  const [xAxis, zAxis] = coordSystem.horizontal_axes;
-  const upAxis = coordSystem.up_axis;
+  const [xAxis, zAxis] = coordSystem.horizontal_axes ?? [[1, 0, 0], [0, 0, 1]];
+  const upAxis = coordSystem.up_axis ?? [0, 1, 0];
   return [dot3(direction, xAxis), dot3(direction, upAxis), dot3(direction, zAxis)];
 }
 

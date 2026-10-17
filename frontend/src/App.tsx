@@ -89,7 +89,7 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
   }, [selectedSessionId, backend, reloadTrigger]);
 
   const selectedPlane = useMemo(() => {
-    if (!twin?.room_model || !selectedPlaneId) return null;
+    if (!twin?.room_model?.planes || !selectedPlaneId) return null;
     return twin.room_model.planes.find((p) => p.id === selectedPlaneId) ?? null;
   }, [twin, selectedPlaneId]);
 

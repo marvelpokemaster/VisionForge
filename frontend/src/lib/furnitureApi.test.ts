@@ -53,6 +53,40 @@ describe("furnitureApi client", () => {
     );
   });
 
+  it("validateFurniturePlacement preserves rejection results from backend", async () => {
+    const mockRes = { valid: false, reason: "Collides with wall", corners: [] };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => mockRes,
+    } as Response);
+
+    const res = await validateFurniturePlacement("session_123", {
+      furniture_id: "bed_queen",
+      center_x: 5.0,
+      center_z: 5.0,
+      angle_deg: 0,
+    });
+    expect(res.valid).toBe(false);
+    expect(res.reason).toBe("Collides with wall");
+  });
+
+  it("validateFurniturePlacement throws on server error", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      statusText: "Internal Server Error",
+      json: async () => ({ detail: "Engine crash" }),
+    } as Response);
+
+    await expect(
+      validateFurniturePlacement("session_123", {
+        furniture_id: "bed_queen",
+        center_x: 0,
+        center_z: 0,
+        angle_deg: 0,
+      })
+    ).rejects.toThrow("Engine crash");
+  });
+
   it("calibrateScale handles server errors gracefully", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,

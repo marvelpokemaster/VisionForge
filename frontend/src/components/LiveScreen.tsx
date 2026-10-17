@@ -203,7 +203,7 @@ export default function LiveScreen() {
 
   const twin = summary.lastTwin;
   const reason = noGeometryReason(twin);
-  const viewerTwin = twin && twin.room_model && twin.room_model.planes.length > 0 ? twin : null;
+  const viewerTwin = twin?.room_model?.planes && twin.room_model.planes.length > 0 ? twin : null;
 
   return (
     <div className="live-screen">

@@ -74,3 +74,69 @@ def test_calibrate_room_model_scale_by_two_points():
 
     assert scaled["scale"]["scale_factor"] == pytest.approx(0.5)
     assert scaled["room"]["length"] == pytest.approx(5.0)
+
+
+def test_calibrate_rejects_invalid_inputs():
+    room_model = {
+        "scale": {"metric_available": False, "scale_factor": 1.0},
+        "room": {"length": 10.0, "width": 5.0, "height": 3.0, "floor_area": 50.0},
+        "planes": [],
+    }
+
+    # Negative distance
+    with pytest.raises(ValueError, match="strictly positive"):
+        calibrate_room_model_scale(room_model, "room_width", known_distance_meters=-2.0)
+
+    # Zero distance
+    with pytest.raises(ValueError, match="strictly positive"):
+        calibrate_room_model_scale(room_model, "room_width", known_distance_meters=0.0)
+
+    # NaN distance
+    with pytest.raises(ValueError, match="strictly positive"):
+        calibrate_room_model_scale(room_model, "room_width", known_distance_meters=float("nan"))
+
+    # Inf distance
+    with pytest.raises(ValueError, match="strictly positive"):
+        calibrate_room_model_scale(room_model, "room_width", known_distance_meters=float("inf"))
+
+    # Unrealistic physical distances (> 500m or < 0.05m)
+    with pytest.raises(ValueError, match="outside plausible room range"):
+        calibrate_room_model_scale(room_model, "room_width", known_distance_meters=1000.0)
+
+    with pytest.raises(ValueError, match="outside plausible room range"):
+        calibrate_room_model_scale(room_model, "room_width", known_distance_meters=0.01)
+
+    # Unknown reference type
+    with pytest.raises(ValueError, match="Unknown reference_type"):
+        calibrate_room_model_scale(room_model, "ceiling_diagonal", known_distance_meters=3.0)
+
+    # Two points: missing coordinates
+    with pytest.raises(ValueError, match="pt_a and pt_b are required"):
+        calibrate_room_model_scale(room_model, "two_points", known_distance_meters=2.0)
+
+    # Two points: wrong dimensions (2D instead of 3D)
+    with pytest.raises(ValueError, match="exactly 3 coordinates"):
+        calibrate_room_model_scale(
+            room_model, "two_points", known_distance_meters=2.0, pt_a=[0.0, 0.0], pt_b=[1.0, 1.0]
+        )
+
+    # Two points: identical points (zero distance)
+    with pytest.raises(ValueError, match="Distance between reference points is zero"):
+        calibrate_room_model_scale(
+            room_model,
+            "two_points",
+            known_distance_meters=2.0,
+            pt_a=[1.0, 1.0, 1.0],
+            pt_b=[1.0, 1.0, 1.0],
+        )
+
+    # Two points: NaN in coordinates
+    with pytest.raises(ValueError, match="must be finite"):
+        calibrate_room_model_scale(
+            room_model,
+            "two_points",
+            known_distance_meters=2.0,
+            pt_a=[float("nan"), 0.0, 0.0],
+            pt_b=[1.0, 1.0, 1.0],
+        )
+

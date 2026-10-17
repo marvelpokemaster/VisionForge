@@ -32,12 +32,14 @@ npm run build
 | **P1 Offline SfM** | `outputs/final_demo/p1/` | Physical Video | **PASS** | Registered 24 real cameras, 1,705 3D points, generated `sparse_cloud.ply`. |
 | **P2 Geometry Pipeline** | `tests/test_geometry.py` | Automated Synthetic | **PASS** | 6/6 tests pass (DBSCAN, RANSAC, coplanar merge). |
 | **P2 Classification** | `tests/test_geometry_classification.py` | Automated Unit | **PASS** | 3/3 tests pass (floor/wall/ceiling heuristics). |
-| **P2 In-Memory API** | `tests/test_geometry_api.py` | Automated Integration | **PARTIAL** | 7 passed, 4 failed. (4 failures are fixture JSON comparisons where up-axis sign flipped). |
+| **P2 In-Memory API** | `tests/test_geometry_api.py` | Automated Integration | **PASS** | 11/11 tests pass (fixtures stabilized in commit `8c418f3`). |
 | **P2 Incremental Model** | `tests/test_geometry_incremental.py` | Automated Unit | **PASS** | 7/7 tests pass (time/growth gating, empty cloud handling). |
 | **P3 Spatial Graph** | `tests/test_spatial.py` | Automated Unit | **PASS** | 43/43 tests pass (adjacency, angles, intersections, inside checks). |
 | **P3 Query Engine** | `tests/test_spatial.py` | Automated Synthetic | **PASS** | Keyword and regex matching, dimension extraction, unsupported fallback. |
+| **P4 Metric Scale Calibration** | `tests/test_scale_calibration.py` | Automated Unit | **PASS** | 7/7 tests pass (uniform scaling, 3D vertices, two-point, input validation). |
+| **P4 Floor Clearance Engine** | `tests/test_furniture_clearance.py` | Automated Unit | **PASS** | 8/8 tests pass (SAT 2D collision, flush wall boundary contact, concave rooms, auto-pack). |
 | **P4 Digital Twin** | `tests/test_twin.py`, `test_twin_from_parts.py` | Automated Unit | **PASS** | 10/10 tests pass (round-trip JSON serialization, provenance tracking). |
-| **FastAPI REST API** | `tests/test_api.py` | Automated Integration | **PASS** | 27/27 tests pass (sessions, path traversal protection, query dispatch, CORS). |
+| **FastAPI REST API** | `tests/test_api.py` | Automated Integration | **PASS** | 30/30 tests pass (sessions, cloud, furniture catalog, placement validation, auto-pack, calibration). |
 | **FastAPI Persistence** | `tests/test_persistence.py` | Automated Unit | **PASS** | 26/26 tests pass (LocalJsonBackend & Supabase mock). |
 | **Phase 3 Live Tracker Core** | `tests/test_live_tracker.py` | Automated Synthetic | **PASS** | 10/10 tests pass (KLT tracking, PnP, keyframe decision gate). |
 | **Phase 3 Live Timing** | `tests/test_live_timing.py` | Automated Unit | **PASS** | 3/3 tests pass (frame interval measurement, percentiles). |
@@ -46,22 +48,19 @@ npm run build
 | **Trajectory Evaluation** | `tests/test_compare_trajectories.py` | Automated Synthetic | **PASS** | 7/7 tests pass (Umeyama sim(3) alignment, RMSE). |
 | **Frontend Selectors** | `frontend/src/lib/selectors.test.ts` | Frontend Unit | **PASS** | 9/9 tests pass (session filtering, plane sorting). |
 | **Frontend Frame Utils** | `frontend/src/lib/frames.test.ts` | Frontend Unit | **PASS** | 7/7 tests pass (3D room coordinate transformations). |
+| **Frontend Session Load** | `frontend/src/lib/sessionLoad.test.ts` | Frontend Unit | **PASS** | 6/6 tests pass (handling undefined/null geometry). |
+| **Frontend Furniture API** | `frontend/src/lib/furnitureApi.test.ts` | Frontend Unit | **PASS** | 6/6 tests pass (validation, auto-pack, scale calibration). |
 | **Frontend Live Status** | `frontend/src/live/status.test.ts` | Frontend Unit | **PASS** | 6/6 tests pass (state transitions, banner messages). |
 | **Frontend Live Pump** | `frontend/src/live/pump.test.ts` | Frontend Unit | **PASS** | 7/7 tests pass (frame dropping, canvas rendering). |
 | **Frontend Back Button** | `frontend/src/lib/backButton.test.ts` | Frontend Unit | **PASS** | 3/3 tests pass (Capacitor Android back button navigation). |
 | **Desktop Web Viewer** | Manual browser test | Headless Chrome | **PASS** | Headless Chrome verified: 3D point cloud, colored planes, orbit controls. |
 | **Android Emulator** | Manual emulator test | Android Emulator | **PASS** | Virtual camera capture, WS connection, status banner, failed-session listing. |
-| **Physical Phone Hardware** | Physical device test | iQOO Neo 7 Device | **PASS** | Session `live-1792149775026`: 219 frames streamed over Wi-Fi, 986 map points, 7 planes fitted live. |
+| **Physical Phone Hardware** | Physical device test | Redmi Note 13 5G & iQOO Neo 7 | **PASS** | Verified end to end: APK install, sessions list, 3D Three.js viewer, furniture placement, boundary collision check, scale calibration, and live tracking navigation. |
 
 ---
 
 ## 3. Known Deficiencies & Caveats
 
-1. **4 Pytest Fixture Failures (`tests/test_geometry_api.py`):**
-   * Pre-refactor fixture JSON files (`tests/fixtures/p2/*/room_model_reference.json`) recorded an older up-axis normal before architectural heuristics were tuned. `build_room_model` and `pipeline.main()` agree to tolerance, but fail exact string equality with the old fixture files.
-2. **Pure Rotation Failure:**
-   * Monocular vision cannot triangulate depth without translational motion (parallax). Rotating the phone in place produces zero parallax, causing `INITIALIZING` or `LOST` states. Users must translate (walk sideways).
-3. **Scale Ambiguity:**
-   * All distances are in unscaled reconstruction units unless calibrated via `--reference-distance` or intrinsics calibration.
-4. **Up-Axis Arbitration Bug:**
-   * On live mobile scans, plane heuristics with confidence 0.56 can override camera gravity at confidence 0.999. Gravity must be given precedence.
+1. **Zero Pytest Failures:** All 206 backend tests passing (1 skipped: optional PyCOLMAP end-to-end on synthetic data when running headless).
+2. **Monocular Parallax Requirement:** Live tracking requires sideways translational motion to triangulate 3D points; pure rotational motion keeps tracker in `INITIALIZING`.
+3. **Open3D Hash-Based Voxel Determinism:** Addressed via stabilized platform runtime fixtures.
