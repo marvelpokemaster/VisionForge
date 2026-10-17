@@ -293,3 +293,51 @@ def test_list_sessions_includes_persisted_only_session_when_local_run_dir_gone(c
     assert entry is not None
     assert entry["run_dir"] is None
     assert entry["provenance"]["input_type"] == "synthetic"
+
+
+def test_get_furniture_catalog(client):
+    resp = client.get("/furniture/catalog")
+    assert resp.status_code == 200
+    cat = resp.json()
+    assert "bed_queen" in cat
+    assert "work_desk" in cat
+    assert cat["bed_queen"]["length"] > 0
+
+
+def test_furniture_validate_placement(client):
+    resp = client.post("/sessions/final_demo/furniture/validate", json={
+        "furniture_id": "bed_single",
+        "center_x": 0.0,
+        "center_z": 0.0,
+        "angle_deg": 0.0,
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "valid" in data
+    assert "corners" in data
+
+
+def test_furniture_auto_pack(client):
+    resp = client.post("/sessions/final_demo/furniture/auto_pack", json={
+        "furniture_id": "work_desk",
+        "spacing": 0.2,
+        "max_items": 10,
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "max_count" in data
+    assert "placements" in data
+    assert data["max_count"] >= 0
+
+
+def test_scale_calibrate(client, run_dir):
+    # Calibrate with room_width
+    resp = client.post("/sessions/final_demo/scale/calibrate", json={
+        "reference_type": "room_width",
+        "known_distance_meters": 5.0,
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["scale"]["metric_available"] is True
+    assert data["room"]["width"] == pytest.approx(5.0)

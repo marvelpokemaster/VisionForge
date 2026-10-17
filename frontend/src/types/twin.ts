@@ -220,6 +220,7 @@ export interface Twin {
   cameras: CameraPose[] | null;
   scene_graph: SceneGraph | null;
   sparse_cloud_path: string | null;
+  scale?: Scale;
 }
 
 export interface Session {

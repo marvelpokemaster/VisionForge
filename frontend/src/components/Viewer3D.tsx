@@ -10,6 +10,8 @@ import { makeTextSprite } from "../lib/labelSprite";
 import { buildFrustumGeometry } from "../lib/frustum";
 import { cloudUrl } from "../lib/api";
 
+import type { PlacedFurniture } from "../types/furniture";
+
 const PLANE_COLORS: Record<PlaneType, number> = {
   floor: 0x2ecc71, // green
   wall: 0xe74c3c, // red
@@ -24,6 +26,7 @@ export interface Toggles {
   geometry: boolean;
   labels: boolean;
   cameras: boolean;
+  furniture?: boolean;
 }
 
 interface Groups {
@@ -34,6 +37,7 @@ interface Groups {
   boundingPolygon: THREE.Group;
   cameras: THREE.Group;
   trajectory: THREE.Group;
+  furniture: THREE.Group;
 }
 
 interface Props {
@@ -45,9 +49,10 @@ interface Props {
   /** Where to fetch the point cloud PLY from; defaults to the session's
    * /cloud endpoint. The live screen points it at /live/{id}/cloud. */
   cloudUrl?: string;
+  placedFurniture?: PlacedFurniture[];
 }
 
-export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, onSelectPlane, cloudUrl: cloudUrlProp }: Props) {
+export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, onSelectPlane, cloudUrl: cloudUrlProp, placedFurniture }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -101,7 +106,8 @@ export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, on
       intersections: new THREE.Group(),
       boundingPolygon: new THREE.Group(),
       cameras: new THREE.Group(),
-      trajectory: new THREE.Group()
+      trajectory: new THREE.Group(),
+      furniture: new THREE.Group()
     };
     Object.values(groups).forEach((g) => scene.add(g));
     groupsRef.current = groups;
@@ -164,6 +170,7 @@ export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, on
     clearGroup(groups.boundingPolygon);
     clearGroup(groups.cameras);
     clearGroup(groups.trajectory);
+    clearGroup(groups.furniture);
     planeMeshesRef.current.clear();
     planeBaseColorRef.current.clear();
 
@@ -300,6 +307,50 @@ export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, on
     applyHighlight(planeMeshesRef.current, planeBaseColorRef.current, selectedPlaneId);
   }, [selectedPlaneId]);
 
+  // ---- furniture 3D rendering updates ----
+  useEffect(() => {
+    const groups = groupsRef.current;
+    if (!groups) return;
+    clearGroup(groups.furniture);
+
+    if (!placedFurniture || placedFurniture.length === 0) return;
+
+    for (const item of placedFurniture) {
+      const geom = new THREE.BoxGeometry(item.length, item.height, item.width);
+      geom.translate(0, item.height / 2, 0);
+
+      const colorHex = item.valid
+        ? parseInt(item.color.replace("#", "0x"), 16) || 0x3b82f6
+        : 0xef4444;
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: colorHex,
+        roughness: 0.3,
+        metalness: 0.1,
+        transparent: true,
+        opacity: item.valid ? 0.75 : 0.85,
+      });
+
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(item.center_x, 0, item.center_z);
+      mesh.rotation.y = (item.angle_deg * Math.PI) / 180;
+      groups.furniture.add(mesh);
+
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geom),
+        new THREE.LineBasicMaterial({ color: item.valid ? 0xffffff : 0xff2222, linewidth: 2 })
+      );
+      edges.position.copy(mesh.position);
+      edges.rotation.copy(mesh.rotation);
+      groups.furniture.add(edges);
+
+      const labelText = `${item.name}${item.valid ? "" : " (COLLIDES)"}`;
+      const label = makeTextSprite(labelText, item.valid ? "#ffffff" : "#ff4444");
+      label.position.set(item.center_x, item.height + 0.3, item.center_z);
+      groups.furniture.add(label);
+    }
+  }, [placedFurniture]);
+
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }
 
@@ -311,6 +362,7 @@ function applyToggles(groups: Groups, toggles: Toggles) {
   groups.labels.visible = toggles.labels;
   groups.cameras.visible = toggles.cameras;
   groups.trajectory.visible = toggles.cameras;
+  groups.furniture.visible = toggles.furniture ?? true;
 }
 
 function applyHighlight(

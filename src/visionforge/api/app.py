@@ -1,7 +1,7 @@
 import os
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +10,8 @@ from pydantic import BaseModel
 
 from visionforge.twin.digital_twin import DigitalTwin
 from visionforge.spatial.queries import SpatialQueryEngine
+from visionforge.spatial.clearance import FURNITURE_CATALOG, FloorClearanceEngine, PlacementItem
+from visionforge.spatial.calibration import apply_scale_to_session
 from visionforge.api.store import SessionStore
 from visionforge.api.live import install_live_routes
 from visionforge.persistence import get_backend, persist_run
@@ -41,6 +43,36 @@ class QueryRequest(BaseModel):
     method: Optional[str] = None
     params: Optional[Dict[str, Any]] = None
     question: Optional[str] = None
+
+
+class ValidatePlacementRequest(BaseModel):
+    furniture_id: str
+    center_x: float
+    center_z: float
+    angle_deg: float = 0.0
+    placed_items: Optional[List[PlacementItem]] = None
+    custom_length: Optional[float] = None
+    custom_width: Optional[float] = None
+
+
+class AutoPackRequest(BaseModel):
+    furniture_id: str
+    spacing: float = 0.3
+    max_items: int = 50
+    custom_length: Optional[float] = None
+    custom_width: Optional[float] = None
+
+
+class CalibrateScaleRequest(BaseModel):
+    reference_type: str
+    known_distance_meters: float
+    pt_a: Optional[List[float]] = None
+    pt_b: Optional[List[float]] = None
+
+
+ValidatePlacementRequest.model_rebuild()
+AutoPackRequest.model_rebuild()
+CalibrateScaleRequest.model_rebuild()
 
 
 def _validate_id_component(value: str, what: str) -> None:
@@ -209,6 +241,73 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
         if not ply_path.exists():
             raise HTTPException(status_code=404, detail=f"Plane PLY '{plane_id}' not available for this session")
         return FileResponse(str(ply_path), media_type="application/octet-stream", filename=f"{plane_id}.ply")
+
+    # ------------------------------------------------------------------
+    # Furniture & Metric Scale Endpoints (Phase 4)
+    # ------------------------------------------------------------------
+
+    @app.get("/furniture/catalog")
+    def get_furniture_catalog():
+        return FURNITURE_CATALOG
+
+    @app.get("/sessions/{session_id}/furniture/catalog")
+    def get_session_furniture_catalog(session_id: str):
+        return FURNITURE_CATALOG
+
+    @app.post("/sessions/{session_id}/furniture/validate")
+    def validate_furniture_placement(session_id: str, req: ValidatePlacementRequest):
+        run_dir = _run_dir_or_404(session_id)
+        room_model_path = run_dir / "p2" / "room_model.json"
+        if not room_model_path.exists():
+            room_model_path = run_dir / "room_model.json"
+        room_model = _json_or_404(room_model_path, "room_model.json")
+        engine = FloorClearanceEngine(room_model)
+        return engine.validate_placement(
+            furniture_id=req.furniture_id,
+            center_x=req.center_x,
+            center_z=req.center_z,
+            angle_deg=req.angle_deg,
+            placed_items=req.placed_items,
+            custom_length=req.custom_length,
+            custom_width=req.custom_width,
+        )
+
+    @app.post("/sessions/{session_id}/furniture/auto_pack")
+    def auto_pack_furniture(session_id: str, req: AutoPackRequest):
+        run_dir = _run_dir_or_404(session_id)
+        room_model_path = run_dir / "p2" / "room_model.json"
+        if not room_model_path.exists():
+            room_model_path = run_dir / "room_model.json"
+        room_model = _json_or_404(room_model_path, "room_model.json")
+        engine = FloorClearanceEngine(room_model)
+        return engine.auto_pack(
+            furniture_id=req.furniture_id,
+            spacing=req.spacing,
+            max_items=req.max_items,
+            custom_length=req.custom_length,
+            custom_width=req.custom_width,
+        )
+
+    @app.post("/sessions/{session_id}/scale/calibrate")
+    def calibrate_scale(session_id: str, req: CalibrateScaleRequest):
+        run_dir = _run_dir_or_404(session_id)
+        try:
+            scaled_model = apply_scale_to_session(
+                session_dir=run_dir,
+                reference_type=req.reference_type,
+                known_distance_meters=req.known_distance_meters,
+                pt_a=req.pt_a,
+                pt_b=req.pt_b,
+            )
+            return {
+                "success": True,
+                "scale": scaled_model["scale"],
+                "room": scaled_model["room"],
+            }
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
 
     return app
 
