@@ -234,7 +234,15 @@ export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, on
         if (!pose) continue;
 
         const axes = cameraAxesRoomFrame(pose.rotation_quat, coordSystem);
-        const geom = buildFrustumGeometry(props.position_room, axes.forward, axes.up, axes.right, props.camera_params);
+        const geom = buildFrustumGeometry(
+          props.position_room,
+          axes.forward,
+          axes.up,
+          axes.right,
+          props.camera_params,
+          0.4,
+          pose.camera_model
+        );
         const frustum = new THREE.LineSegments(geom, new THREE.LineBasicMaterial({ color: 0x00ffff }));
         groups.cameras.add(frustum);
       }

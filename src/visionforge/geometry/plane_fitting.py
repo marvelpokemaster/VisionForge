@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 # Maximum angular disagreement between UP sources before they are considered
 # inconsistent. Angles are measured between unoriented vector lines.
-MAX_SOURCE_AGREEMENT_DEG = 15.0
+MAX_SOURCE_AGREEMENT_DEG = 22.5
 
 # Plane normal approximately parallel to UP => horizontal plane.
 HORIZONTAL_ANGLE_DEG = 15.0
@@ -749,10 +749,10 @@ def _architecture_score(
     )
 
     return float(
-        0.25 * floor_side_score
-        + 0.10 * pair_score
-        + 0.60 * wall_score
-        + 0.05 * support_score
+        0.40 * floor_side_score
+        + 0.30 * pair_score
+        + 0.20 * wall_score
+        + 0.10 * support_score
     )
 
 
@@ -898,10 +898,15 @@ def _fuse_up_sources(
         if fused is None:
             continue
 
-        source_weight = sum(
-            c
-            for _, _, c in members
-        )
+        # Separate physical camera gravity from plane-derived sources to avoid
+        # artificial double-counting (e.g. architectural_planes + largest_plane_legacy
+        # both evaluating the exact same planes).
+        plane_confs = [c for name, _, c in members if name != "camera_gravity"]
+        plane_weight = (max(plane_confs) + 0.1 * sum(sorted(plane_confs)[:-1])) if plane_confs else 0.0
+        gravity_confs = [c for name, _, c in members if name == "camera_gravity"]
+        gravity_weight = sum(gravity_confs)
+
+        source_weight = gravity_weight + plane_weight
 
         agreement_fraction = (
             len(members)

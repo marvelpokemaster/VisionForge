@@ -123,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             f"Voxel downsampling size (default: "
-            f"{VOXEL_SIZE_FRACTION * 100:.1f}% of raw cloud bbox diagonal)"
+            f"{VOXEL_SIZE_FRACTION * 100:.1f}%% of raw cloud bbox diagonal)"
         ),
     )
     parser.add_argument(
@@ -132,7 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             f"RANSAC distance threshold (default: "
-            f"{PLANE_THRESHOLD_FRACTION * 100:.1f}% of raw cloud bbox diagonal)"
+            f"{PLANE_THRESHOLD_FRACTION * 100:.1f}%% of raw cloud bbox diagonal)"
         ),
     )
     parser.add_argument(

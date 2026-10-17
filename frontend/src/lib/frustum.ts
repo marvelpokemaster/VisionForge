@@ -11,11 +11,37 @@ export function buildFrustumGeometry(
   up: Vec3,
   right: Vec3,
   cameraParams: number[] | undefined,
-  size = 0.4
+  size = 0.4,
+  cameraModel = "PINHOLE"
 ): THREE.BufferGeometry {
-  const [fx, cx, cy] = cameraParams && cameraParams.length >= 3 ? cameraParams : [1, 1, 1];
+  let fx = 1;
+  let fy = 1;
+  let cx = 1;
+  let cy = 1;
+
+  if (cameraParams && cameraParams.length >= 3) {
+    if (cameraModel === "SIMPLE_RADIAL") {
+      // SIMPLE_RADIAL: [f, cx, cy, k]
+      fx = cameraParams[0];
+      fy = cameraParams[0];
+      cx = cameraParams[1];
+      cy = cameraParams[2];
+    } else if (cameraParams.length >= 4) {
+      // PINHOLE: [fx, fy, cx, cy]
+      fx = cameraParams[0];
+      fy = cameraParams[1];
+      cx = cameraParams[2];
+      cy = cameraParams[3];
+    } else {
+      fx = cameraParams[0];
+      fy = cameraParams[0];
+      cx = cameraParams[1];
+      cy = cameraParams[2];
+    }
+  }
+
   const halfW = Math.max(0.1, cx / fx) * size;
-  const halfH = Math.max(0.1, cy / fx) * size;
+  const halfH = Math.max(0.1, cy / fy) * size;
 
   const apex = new THREE.Vector3(...position);
   const f = new THREE.Vector3(...forward).normalize().multiplyScalar(size);
