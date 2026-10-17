@@ -3,14 +3,14 @@
 ## 1. Executive Summary
 VisionForge is a **purely classical computer vision** monocular 3D room reconstruction and digital twin platform.
 
-* **Repository State:** Branch `feature/phase4-furniture-scale`, HEAD commit `3e245fb` + physical device runtime hardening & bug fixes.
+* **Repository State:** Branch `feature/phase4-furniture-scale`, HEAD commit `a896146` (`fix(mobile,clearance): physical device runtime hardening, boundary contact clearance, and scale calibration validation`).
 * **Testing Status:**
-  * **Backend (Python):** 206 passed, 1 skipped, 0 failed (100% green in 20.36s).
-  * **Frontend (Vitest):** 12 test files, 70 passed (100% green in 507ms).
+  * **Backend (Python):** 206 passed, 1 skipped, 0 failed (100% green in 24.22s).
+  * **Frontend (Vitest):** 12 test files, 70 passed (100% green in 589ms).
   * **Build:** Frontend builds cleanly (`proxychains npm run build`).
   * **Mobile Sync:** Capacitor 8 synced (`proxychains npx cap sync android`).
-  * **Android Build:** `BUILD SUCCESSFUL in 1s` (`assembleDebug`).
-  * **Physical Device:** Installed and verified on physical Redmi Note 13 5G (`rwkbgmhir4c6vch6`) with real-time UI interactions, 3D viewing, furniture placement, scale calibration, and live tracking navigation.
+  * **Android Build:** `BUILD SUCCESSFUL in 2s` (`assembleDebug`).
+  * **Physical Device:** Installed and verified on physical Redmi Note 13 5G (`rwkbgmhir4c6vch6`) with real-time UI interactions, 3D viewing, furniture placement, scale calibration, and live tracking navigation. Screenshots preserved in `docs/results/phase4_mobile_verification/`.
 * **Milestone Reached:** 
   * Phase 1: Ingestion & Offline SfM (Complete & Verified).
   * Phase 2: Batch Geometry, Scene Graph, Digital Twin, Three.js Web Viewer (Complete & Verified).

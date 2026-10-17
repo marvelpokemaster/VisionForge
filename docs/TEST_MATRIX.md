@@ -55,7 +55,7 @@ npm run build
 | **Frontend Back Button** | `frontend/src/lib/backButton.test.ts` | Frontend Unit | **PASS** | 3/3 tests pass (Capacitor Android back button navigation). |
 | **Desktop Web Viewer** | Manual browser test | Headless Chrome | **PASS** | Headless Chrome verified: 3D point cloud, colored planes, orbit controls. |
 | **Android Emulator** | Manual emulator test | Android Emulator | **PASS** | Virtual camera capture, WS connection, status banner, failed-session listing. |
-| **Physical Phone Hardware** | Physical device test | Redmi Note 13 5G & iQOO Neo 7 | **PASS** | Verified end to end: APK install, sessions list, 3D Three.js viewer, furniture placement, boundary collision check, scale calibration, and live tracking navigation. |
+| **Physical Phone Hardware** | Physical device test | Redmi Note 13 5G & iQOO Neo 7 | **PASS** | Verified end to end: APK install, sessions list, 3D Three.js viewer, furniture placement, boundary collision check, scale calibration, and live tracking navigation. Screenshots preserved in `docs/results/phase4_mobile_verification/`. |
 
 ---
 
