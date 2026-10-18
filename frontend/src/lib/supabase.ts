@@ -75,6 +75,20 @@ export async function signUpWithEmail(email: string, password: string): Promise<
   return { user: data.user, error: null };
 }
 
+export async function signInWithGoogle(): Promise<{ error: Error | null }> {
+  const c = getSupabaseClient();
+  if (!c) return { error: new Error("Supabase client not initialized") };
+  const redirectTo = window.location.origin;
+  const { error } = await c.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo,
+    },
+  });
+  if (error) return { error: new Error(error.message) };
+  return { error: null };
+}
+
 export async function signOut(): Promise<{ error: Error | null }> {
   const c = getSupabaseClient();
   if (!c) return { error: null };
