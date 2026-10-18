@@ -125,3 +125,50 @@ def test_production_rejects_unverified_jwt(tmp_path, monkeypatch):
     resp = client.get("/sessions", headers={"Authorization": f"Bearer {fake_jwt}"})
     assert resp.status_code == 401
     assert "could not be verified by production backend" in resp.json()["detail"]
+
+
+def test_supabase_backend_rejects_invalid_token(tmp_path):
+    from visionforge.persistence.supabase_backend import SupabaseBackend
+
+    mock_client = MagicMock()
+    mock_client.auth.get_user.side_effect = Exception("JWT expired or invalid")
+    backend = SupabaseBackend(url="https://example.supabase.co", key="fake-key", client=mock_client)
+
+    app = create_app(outputs_root=tmp_path, backend=backend)
+    client = TestClient(app)
+
+    resp = client.get("/sessions", headers={"Authorization": "Bearer invalid-supabase-token"})
+    assert resp.status_code == 401
+    assert "Authentication failed" in resp.json()["detail"]
+
+
+def test_supabase_backend_accepts_verified_token(tmp_path):
+    from visionforge.persistence.supabase_backend import SupabaseBackend
+
+    mock_client = MagicMock()
+    mock_user_response = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = "verified-supabase-uid"
+    mock_user_response.user = mock_user
+    mock_client.auth.get_user.return_value = mock_user_response
+
+    mock_table = MagicMock()
+    mock_select = MagicMock()
+    mock_or = MagicMock()
+    mock_execute = MagicMock()
+    mock_execute.data = [{"id": "sess-sb-1", "user_id": "verified-supabase-uid"}]
+    mock_or.execute.return_value = mock_execute
+    mock_select.or_.return_value = mock_or
+    mock_table.select.return_value = mock_select
+    mock_client.table.return_value = mock_table
+
+    backend = SupabaseBackend(url="https://example.supabase.co", key="fake-key", client=mock_client)
+
+    app = create_app(outputs_root=tmp_path, backend=backend)
+    client = TestClient(app)
+
+    resp = client.get("/sessions", headers={"Authorization": "Bearer valid-supabase-token"})
+    assert resp.status_code == 200
+    sessions = resp.json()
+    assert any(s["id"] == "sess-sb-1" for s in sessions)
+

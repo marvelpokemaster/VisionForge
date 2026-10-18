@@ -93,13 +93,18 @@ export async function probeBackend(
   base: string,
   fetchImpl: typeof fetch = fetch,
   timeoutMs = 5000,
-  now: () => number = () => Date.now()
+  now: () => number = () => Date.now(),
+  storage: StorageLike | null = defaultStorage()
 ): Promise<ProbeResult> {
   const t0 = now();
   const ctl = typeof AbortController === "function" ? new AbortController() : null;
   const timer = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : null;
   try {
-    const res = await fetchImpl(`${base}/sessions`, ctl ? { signal: ctl.signal } : undefined);
+    const headers = { ...authHeaders(storage) };
+    const res = await fetchImpl(`${base}/sessions`, {
+      ...(ctl ? { signal: ctl.signal } : {}),
+      headers,
+    });
     if (!res.ok) return { ok: false, error: `GET /sessions -> ${res.status} ${res.statusText}`.trim(), ms: now() - t0 };
     const body: unknown = await res.json();
     const sessions = Array.isArray(body) ? body.length : 0;

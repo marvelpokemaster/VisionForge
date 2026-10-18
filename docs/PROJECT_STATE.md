@@ -5,18 +5,19 @@ VisionForge is a **purely classical computer vision** monocular 3D room reconstr
 
 * **Repository State:** Branch `feature/phase4-furniture-scale`.
 * **Testing Status:**
-  * **Backend (Python):** 225 passed, 1 skipped, 0 failed (100% green in 23.44s).
-  * **Frontend (Vitest):** 12 test files, 73 passed (100% green in 571ms).
-  * **Build:** Frontend builds cleanly (`npm run build` in 1.90s).
-  * **Mobile Sync:** Capacitor 8 synced (`npx cap sync android` in 0.06s).
-  * **Android Build:** `BUILD SUCCESSFUL in 2s` (`assembleDebug`).
+  * **Backend (Python):** 227 passed, 1 skipped, 0 failed (100% green in 19.31s).
+  * **Frontend (Vitest):** 12 test files, 73 passed (100% green in 515ms).
+  * **Build:** Frontend builds cleanly (`npm run build` in 1.70s).
+  * **Mobile Sync:** Capacitor 8 synced (`npx cap sync android` in 0.05s).
+  * **Android Build:** `BUILD SUCCESSFUL in 1s` (`assembleDebug`, APK at `frontend/android/app/build/outputs/apk/debug/app-debug.apk`).
   * **Physical Device:** Installed and verified on physical Redmi Note 13 5G (`rwkbgmhir4c6vch6`) with real-time UI interactions, 3D viewing, furniture placement, scale calibration, and live tracking navigation. Screenshot verified.
-  * **Cloud Deployment & Security:**
-    * **Firebase Project:** Dedicated project `visionforge-spatial` (Project Number: `548013373123`).
-    * **Security Rules:** Default-deny `firestore.rules` and `firestore.indexes.json` deployed and released to Cloud Firestore. Client-direct SDK access denied; all access mediated through authenticated FastAPI backend.
-    * **Server-Side Auth & Ownership:** Verified Firebase ID tokens required in production. Cross-user access denied (403 Forbidden). No unverified JWT fallback.
-    * **Web App Hosting:** Live on Firebase Hosting at `https://visionforge-spatial.web.app` (HTTP/2 200).
-    * **Docker Backend:** Production Docker container configured with PyCOLMAP, Open3D, OpenCV, and Firebase Admin SDK (`render.yaml` and `Dockerfile`).
+  * **Cloud Deployment & Persistence (Supabase):**
+    * **Supabase Project:** Dedicated project `btpxwlquhjwjqoypqskm` (Status: `ACTIVE_HEALTHY`, Region: `ap-northeast-1`).
+    * **Database Migrations:** Applied `0001_init.sql` and `0002_user_ownership_and_artifacts.sql` covering 9 tables (`sessions`, `room_models`, `scene_graphs`, `twins`, `measurements`, `experiment_results`, `processing_status`, `furniture_layouts`, `artifacts`) with Row Level Security (RLS) enabled on all tables.
+    * **Storage Bucket:** Private bucket `visionforge-artifacts` (500 MB limit, RLS enabled for authenticated and service-role access) for binary PLY point clouds, models, and scan artifacts.
+    * **Backend Persistence:** `SupabaseBackend` verified against live database and storage (session upsert, room model/twin versioning, furniture layout, artifact upload/download).
+    * **Server-Side Auth & Ownership:** Supabase JWT verification via `client.auth.get_user(token)` with strict server-side ownership enforcement (403 Forbidden on cross-user access). Token management field integrated in mobile/web `BackendField`.
+    * **Docker Backend Deployment:** `render.yaml` configured to deploy Docker service with `VISIONFORGE_PERSISTENCE=supabase` and `SUPABASE_URL=https://btpxwlquhjwjqoypqskm.supabase.co`.
 * **Milestone Reached:** 
   * Phase 1: Ingestion & Offline SfM (Complete & Verified).
   * Phase 2: Batch Geometry, Scene Graph, Digital Twin, Three.js Web Viewer (Complete & Verified).

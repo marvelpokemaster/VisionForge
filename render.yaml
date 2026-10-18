@@ -11,12 +11,12 @@ services:
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: VISIONFORGE_PERSISTENCE
-        value: "firebase"
-      - key: FIREBASE_PROJECT_ID
-        value: "visionforge-spatial"
+        value: "supabase"
+      - key: SUPABASE_URL
+        value: "https://btpxwlquhjwjqoypqskm.supabase.co"
+      - key: SUPABASE_KEY
+        sync: false
       - key: VISIONFORGE_REQUIRE_AUTH
         value: "1"
       - key: VISIONFORGE_ENV
         value: "production"
-      - key: FIREBASE_SERVICE_ACCOUNT_KEY
-        sync: false

@@ -12,17 +12,18 @@ def get_backend(outputs_root: "Path | None" = None) -> PersistenceBackend:
     or falls back to LocalJsonBackend. External client libraries are imported lazily."""
     persistence_mode = os.environ.get("VISIONFORGE_PERSISTENCE", "").lower()
 
+    if persistence_mode == "supabase" or (persistence_mode != "firebase" and os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")):
+        url = os.environ.get("SUPABASE_URL")
+        key = os.environ.get("SUPABASE_KEY")
+        if url and key:
+            from visionforge.persistence.supabase_backend import SupabaseBackend
+            print("Persistence: SUPABASE_URL/SUPABASE_KEY set, using SupabaseBackend.")
+            return SupabaseBackend(url, key)
+
     if persistence_mode == "firebase" or os.environ.get("FIREBASE_PROJECT_ID"):
         from visionforge.persistence.firebase_backend import FirebaseBackend
         print("Persistence: FIREBASE_PROJECT_ID set, using FirebaseBackend.")
         return FirebaseBackend()
-
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY")
-    if url and key:
-        from visionforge.persistence.supabase_backend import SupabaseBackend
-        print("Persistence: SUPABASE_URL/SUPABASE_KEY set, using SupabaseBackend.")
-        return SupabaseBackend(url, key)
 
     print("Persistence: using LocalJsonBackend (outputs/).")
     return LocalJsonBackend(outputs_root=outputs_root or Path("outputs"))
