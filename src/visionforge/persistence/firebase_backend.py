@@ -259,7 +259,11 @@ class FirebaseBackend(PersistenceBackend):
     def list_sessions(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         col_ref = self.db.collection("sessions")
         if user_id is not None:
-            docs = col_ref.where("user_id", "==", user_id).get()
+            try:
+                from google.cloud.firestore_v1.base_query import FieldFilter
+                docs = col_ref.where(filter=FieldFilter("user_id", "==", user_id)).get()
+            except Exception:
+                docs = col_ref.where("user_id", "==", user_id).get()
         else:
             docs = col_ref.get()
         return [d.to_dict() for d in docs]
