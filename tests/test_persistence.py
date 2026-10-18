@@ -152,6 +152,10 @@ class _FakeQuery:
         self._filters.append((col, val))
         return self
 
+    def or_(self, expr):
+        # minimal mock for or_ filters
+        return self
+
     def order(self, col, desc=False):
         self._order = (col, desc)
         return self
@@ -171,8 +175,8 @@ class _FakeQuery:
             return _FakeResult(inserted)
 
         if self._mode == "upsert":
-            key = self._on_conflict
-            existing = next((r for r in self._rows if r.get(key) == self._payload.get(key)), None)
+            keys = [k.strip() for k in (self._on_conflict or "id").split(",")]
+            existing = next((r for r in self._rows if all(r.get(k) == self._payload.get(k) for k in keys)), None)
             if existing:
                 existing.update(self._payload)
                 return _FakeResult([existing])
@@ -192,12 +196,40 @@ class _FakeQuery:
         return _FakeResult(results)
 
 
+class FakeStorageBucket:
+    def __init__(self):
+        self.files = {}
+
+    def upload(self, path, file, file_options=None):
+        self.files[path] = file
+        return {"path": path}
+
+    def update(self, path, file, file_options=None):
+        self.files[path] = file
+        return {"path": path}
+
+    def download(self, path):
+        if path not in self.files:
+            raise FileNotFoundError(f"Object {path} not found")
+        return self.files[path]
+
+
+class FakeStorage:
+    def __init__(self):
+        self.buckets = {}
+
+    def from_(self, bucket_name):
+        self.buckets.setdefault(bucket_name, FakeStorageBucket())
+        return self.buckets[bucket_name]
+
+
 class FakeSupabaseClient:
     """Minimal in-memory stand-in for supabase-py's Client, supporting only
     the chain patterns SupabaseBackend actually uses. No network I/O."""
 
     def __init__(self):
         self.tables = {}
+        self.storage = FakeStorage()
 
     def table(self, name):
         self.tables.setdefault(name, [])
@@ -432,3 +464,91 @@ def test_persist_run_through_fake_supabase_backend(run_dir):
     assert len(fake_client.tables["twins"]) == 1
     assert len(fake_client.tables["measurements"]) >= 1
     assert len(fake_client.tables["processing_status"]) == 5
+
+
+def test_local_furniture_layout_save_and_get(tmp_path):
+    backend = LocalJsonBackend(outputs_root=tmp_path)
+    layout = {"placed_items": [{"id": "item-1", "furniture_id": "bed_queen", "x": 1.0, "z": 2.0, "angle": 0.0}]}
+    
+    assert backend.get_furniture_layout("sess-1") is None
+    backend.save_furniture_layout("sess-1", layout, user_id="user-123")
+    retrieved = backend.get_furniture_layout("sess-1")
+    assert retrieved == layout
+
+
+def test_local_artifacts_save_and_get(tmp_path):
+    backend = LocalJsonBackend(outputs_root=tmp_path)
+    content = b"ply\nformat ascii 1.0\nelement vertex 10\nend_header\n"
+    
+    storage_path = backend.save_artifact("sess-1", "sparse_cloud", content, filename="sparse_cloud.ply", user_id="user-123")
+    assert "sparse_cloud.ply" in storage_path
+    
+    retrieved = backend.get_artifact("sess-1", "sparse_cloud")
+    assert retrieved == content
+    
+    artifacts = backend.list_artifacts("sess-1")
+    assert len(artifacts) == 1
+    assert artifacts[0]["artifact_type"] == "sparse_cloud"
+    assert artifacts[0]["byte_size"] == len(content)
+
+
+def test_supabase_furniture_layout_save_and_get(supabase_backend, fake_client):
+    layout = {"placed_items": [{"id": "desk-1", "furniture_id": "work_desk", "x": 0.0, "z": 0.0, "angle": 90.0}]}
+    
+    assert supabase_backend.get_furniture_layout("sess-1") is None
+    supabase_backend.save_furniture_layout("sess-1", layout, user_id="user-abc")
+    
+    assert len(fake_client.tables["furniture_layouts"]) == 1
+    assert fake_client.tables["furniture_layouts"][0]["session_id"] == "sess-1"
+    assert fake_client.tables["furniture_layouts"][0]["user_id"] == "user-abc"
+    assert fake_client.tables["furniture_layouts"][0]["layout"] == layout
+    
+    retrieved = supabase_backend.get_furniture_layout("sess-1")
+    assert retrieved == layout
+
+
+def test_supabase_artifacts_save_and_get(supabase_backend, fake_client):
+    content = b"ply binary mock data"
+    storage_path = supabase_backend.save_artifact("sess-1", "sparse_cloud", content, filename="cloud.ply", user_id="user-xyz")
+    assert storage_path == "sess-1/cloud.ply"
+    
+    assert len(fake_client.tables["artifacts"]) == 1
+    assert fake_client.tables["artifacts"][0]["artifact_type"] == "sparse_cloud"
+    assert fake_client.tables["artifacts"][0]["byte_size"] == len(content)
+    
+    # Download via storage mock
+    downloaded = supabase_backend.get_artifact("sess-1", "sparse_cloud")
+    assert downloaded == content
+    
+    listed = supabase_backend.list_artifacts("sess-1")
+    assert len(listed) == 1
+
+
+def test_persist_artifacts_uploads_sparse_cloud_and_planes(run_dir, tmp_path):
+    from visionforge.persistence import persist_artifacts
+    backend = LocalJsonBackend(outputs_root=tmp_path / "persisted")
+    
+    (run_dir / "p2" / "planes").mkdir(parents=True, exist_ok=True)
+    (run_dir / "p2" / "planes" / "floor.ply").write_text("ply\nformat ascii 1.0\nelement vertex 0\nend_header\n")
+
+    saved = persist_artifacts(backend, "final_demo", run_dir, user_id="user-123")
+    assert "sparse_cloud" in saved
+    assert "plane_floor" in saved
+    
+    cloud_bytes = backend.get_artifact("final_demo", "sparse_cloud")
+    assert cloud_bytes is not None
+    assert b"format ascii 1.0" in cloud_bytes
+
+
+def test_session_user_id_filtering(tmp_path):
+    backend = LocalJsonBackend(outputs_root=tmp_path)
+    backend.save_session("sess-1", input_type="synthetic", video_name=None, status="success", user_id="user-1")
+    backend.save_session("sess-2", input_type="real", video_name=None, status="success", user_id="user-2")
+    
+    all_sess = backend.list_sessions()
+    assert len(all_sess) == 2
+    
+    user1_sess = backend.list_sessions(user_id="user-1")
+    assert len(user1_sess) == 1
+    assert user1_sess[0]["id"] == "sess-1"
+

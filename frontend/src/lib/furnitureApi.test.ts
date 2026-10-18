@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fetchFurnitureCatalog, validateFurniturePlacement, autoPackFurniture, calibrateScale } from "./furnitureApi";
+import {
+  fetchFurnitureCatalog,
+  validateFurniturePlacement,
+  autoPackFurniture,
+  calibrateScale,
+  saveFurnitureLayout,
+  fetchFurnitureLayout,
+} from "./furnitureApi";
 
 describe("furnitureApi client", () => {
   beforeEach(() => {
@@ -15,7 +22,10 @@ describe("furnitureApi client", () => {
 
     const data = await fetchFurnitureCatalog();
     expect(data).toEqual(mockCatalog);
-    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("/furniture/catalog"));
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/furniture/catalog"),
+      expect.anything()
+    );
   });
 
   it("validateFurniturePlacement posts payload correctly", async () => {
@@ -96,4 +106,81 @@ describe("furnitureApi client", () => {
 
     await expect(calibrateScale("session_123", "room_width", -5)).rejects.toThrow("Invalid distance");
   });
+
+  it("saveFurnitureLayout posts placed items and spacing", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: "saved", session_id: "session_123" }),
+    } as Response);
+
+    const items = [
+      {
+        id: "f_1",
+        furniture_id: "bed_queen",
+        name: "Queen Bed",
+        center_x: 1.0,
+        center_z: 2.0,
+        angle_deg: 90,
+        length: 2.0,
+        width: 1.6,
+        height: 0.9,
+        color: "#3b82f6",
+        valid: true,
+        reason: "Clear",
+      },
+    ];
+
+    const res = await saveFurnitureLayout("session_123", items, 0.3);
+    expect(res.status).toBe("saved");
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/sessions/session_123/furniture/layout"),
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"pack_spacing":0.3'),
+      })
+    );
+  });
+
+  it("fetchFurnitureLayout returns parsed items and spacing", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        placed_items: [
+          {
+            id: "f_1",
+            furniture_id: "bed_queen",
+            name: "Queen Bed",
+            center_x: 1.0,
+            center_z: 2.0,
+            angle_deg: 90,
+            custom_length: 2.0,
+            custom_width: 1.6,
+            custom_height: 0.9,
+            color: "#3b82f6",
+            valid: true,
+            reason: "Clear",
+          },
+        ],
+        pack_spacing: 0.35,
+      }),
+    } as Response);
+
+    const layout = await fetchFurnitureLayout("session_123");
+    expect(layout).not.toBeNull();
+    expect(layout?.placedItems.length).toBe(1);
+    expect(layout?.placedItems[0].furniture_id).toBe("bed_queen");
+    expect(layout?.packSpacing).toBe(0.35);
+  });
+
+  it("fetchFurnitureLayout returns null on 404", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+    } as Response);
+
+    const layout = await fetchFurnitureLayout("session_empty");
+    expect(layout).toBeNull();
+  });
 });
+

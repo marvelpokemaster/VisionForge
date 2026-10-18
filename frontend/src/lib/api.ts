@@ -1,5 +1,5 @@
 import type { Session, Twin, QuestionResponse, Measurement } from "../types/twin";
-import { apiBase } from "./backend";
+import { apiBase, authHeaders } from "./backend";
 
 export interface RoomMeasurementsResponse {
   length: Measurement | null;
@@ -24,7 +24,9 @@ export class ApiError extends Error {
 }
 
 async function getJSON<T>(path: string): Promise<T> {
-  const res = await fetch(`${apiBase()}${path}`);
+  const res = await fetch(`${apiBase()}${path}`, {
+    headers: { ...authHeaders() },
+  });
   if (!res.ok) {
     throw new ApiError(`GET ${path} failed: ${res.status} ${res.statusText}`, res.status);
   }
@@ -46,7 +48,7 @@ export function getMeasurements(sessionId: string): Promise<RoomMeasurementsResp
 export async function askQuestion(sessionId: string, question: string): Promise<QuestionResponse> {
   const res = await fetch(`${apiBase()}/sessions/${encodeURIComponent(sessionId)}/query`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ question })
   });
   if (!res.ok) {
@@ -54,6 +56,18 @@ export async function askQuestion(sessionId: string, question: string): Promise<
   }
   return (await res.json()) as QuestionResponse;
 }
+
+export async function persistSession(sessionId: string): Promise<{ session_id: string; saved: string[] }> {
+  const res = await fetch(`${apiBase()}/sessions/${encodeURIComponent(sessionId)}/persist`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+  });
+  if (!res.ok) {
+    throw new ApiError(`POST persist failed: ${res.status} ${res.statusText}`, res.status);
+  }
+  return res.json();
+}
+
 
 export function cloudUrl(sessionId: string): string {
   return `${apiBase()}/sessions/${encodeURIComponent(sessionId)}/cloud`;

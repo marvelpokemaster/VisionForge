@@ -6,6 +6,8 @@ import {
   validateFurniturePlacement,
   autoPackFurniture,
   calibrateScale,
+  saveFurnitureLayout,
+  fetchFurnitureLayout,
 } from "../lib/furnitureApi";
 
 interface Props {
@@ -29,6 +31,10 @@ export default function FurniturePanel({
   const [isPacking, setIsPacking] = useState(false);
   const [packSpacing, setPackSpacing] = useState<number>(0.2);
 
+  // Persistence state
+  const [isSavingLayout, setIsSavingLayout] = useState(false);
+  const [saveStatusMsg, setSaveStatusMsg] = useState<string | null>(null);
+
   // Calibration state
   const [calibrateDimension, setCalibrateDimension] = useState<"room_width" | "room_length">("room_width");
   const [calibrateDistance, setCalibrateDistance] = useState<number>(3.5);
@@ -46,6 +52,36 @@ export default function FurniturePanel({
       })
       .catch((err) => console.error("Could not load furniture catalog", err));
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetchFurnitureLayout(sessionId)
+      .then((layout) => {
+        if (!active) return;
+        if (layout && layout.placedItems.length > 0) {
+          onPlacedFurnitureChange(layout.placedItems);
+          if (layout.packSpacing) setPackSpacing(layout.packSpacing);
+        }
+      })
+      .catch((err) => console.warn("Could not load saved furniture layout", err));
+    return () => {
+      active = false;
+    };
+  }, [sessionId]);
+
+  const handleSaveLayout = async () => {
+    setIsSavingLayout(true);
+    setSaveStatusMsg(null);
+    try {
+      await saveFurnitureLayout(sessionId, placedFurniture, packSpacing);
+      setSaveStatusMsg("✓ Layout saved");
+      setTimeout(() => setSaveStatusMsg(null), 3000);
+    } catch (err: any) {
+      setSaveStatusMsg(`Failed to save: ${err.message}`);
+    } finally {
+      setIsSavingLayout(false);
+    }
+  };
 
   const scale = twin.scale || twin.provenance?.scale || { metric_available: false, scale_factor: 1.0 };
   const floorBoundary = twin?.room_model?.room?.bounding_polygon_room;
@@ -306,13 +342,42 @@ export default function FurniturePanel({
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem" }}>
             <span style={{ fontSize: "0.85rem", fontWeight: "bold" }}>Placed Items ({placedFurniture.length}):</span>
-            <button
-              onClick={() => onPlacedFurnitureChange([])}
-              style={{ fontSize: "0.75rem", background: "none", border: "none", color: "#ef4444", cursor: "pointer", textDecoration: "underline" }}
-            >
-              Clear All
-            </button>
+            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+              <button
+                onClick={handleSaveLayout}
+                disabled={isSavingLayout}
+                style={{
+                  padding: "0.2rem 0.5rem",
+                  background: "#2563eb",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: "4px",
+                  fontSize: "0.75rem",
+                  cursor: isSavingLayout ? "wait" : "pointer",
+                }}
+              >
+                {isSavingLayout ? "Saving..." : "Save Layout"}
+              </button>
+              <button
+                onClick={() => onPlacedFurnitureChange([])}
+                style={{ fontSize: "0.75rem", background: "none", border: "none", color: "#ef4444", cursor: "pointer", textDecoration: "underline" }}
+              >
+                Clear All
+              </button>
+            </div>
           </div>
+
+          {saveStatusMsg && (
+            <div
+              style={{
+                fontSize: "0.75rem",
+                color: saveStatusMsg.startsWith("✓") ? "#34d399" : "#f87171",
+                marginBottom: "0.4rem",
+              }}
+            >
+              {saveStatusMsg}
+            </div>
+          )}
 
           <div style={{ maxHeight: "200px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
             {placedFurniture.map((item, idx) => (

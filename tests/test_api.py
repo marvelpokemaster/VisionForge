@@ -403,3 +403,78 @@ def test_scale_calibration_e2e_measurements_and_furniture_clearance(client, run_
     assert outside_data["valid"] is False
     assert "out of room boundary" in outside_data["reason"].lower()
 
+
+def test_health_endpoint(client):
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert "backend" in data
+    assert "version" in data
+
+
+def test_furniture_layout_save_and_restore(client):
+    layout_data = {
+        "placed_items": [
+            {"id": "item-1", "furniture_id": "bed_queen", "center_x": 1.5, "center_z": 2.0, "angle_deg": 45.0}
+        ],
+        "pack_spacing": 0.25,
+    }
+    post_resp = client.post("/sessions/final_demo/furniture/layout", json=layout_data)
+    assert post_resp.status_code == 200
+    assert post_resp.json()["status"] == "saved"
+
+    get_resp = client.get("/sessions/final_demo/furniture/layout")
+    assert get_resp.status_code == 200
+    data = get_resp.json()
+    assert len(data["placed_items"]) == 1
+    assert data["placed_items"][0]["furniture_id"] == "bed_queen"
+    assert data["pack_spacing"] == 0.25
+
+
+def test_cloud_and_plane_fallback_to_persisted_artifacts(client, run_dir):
+    # Persist session including binary artifacts
+    persist_resp = client.post("/sessions/final_demo/persist")
+    assert persist_resp.status_code == 200
+
+    # Remove local files
+    sparse_ply = run_dir / "p1" / "reconstruction" / "sparse_cloud.ply"
+    plane_ply = run_dir / "p2" / "planes" / "floor.ply"
+    sparse_ply.unlink()
+    plane_ply.unlink()
+
+    # Endpoints should serve from persistence backend
+    cloud_resp = client.get("/sessions/final_demo/cloud")
+    assert cloud_resp.status_code == 200
+    assert b"format ascii 1.0" in cloud_resp.content
+
+    plane_resp = client.get("/sessions/final_demo/planes/floor")
+    assert plane_resp.status_code == 200
+    assert b"format ascii 1.0" in plane_resp.content
+
+
+def test_auth_header_protection(tmp_path, run_dir, monkeypatch):
+    monkeypatch.setenv("VISIONFORGE_REQUIRE_AUTH", "true")
+    from visionforge.api.app import create_app
+    app = create_app(outputs_root=tmp_path)
+    auth_client = TestClient(app)
+
+    # Missing auth header -> 401
+    resp = auth_client.get("/sessions")
+    assert resp.status_code == 401
+    assert "Authentication required" in resp.json()["detail"]
+
+    # Invalid header -> 401
+    resp2 = auth_client.get("/sessions", headers={"Authorization": "Basic 12345"})
+    assert resp2.status_code == 401
+
+    # Valid Bearer token with sub -> 200
+    # Minimal JWT payload with sub="user-test-uuid"
+    import base64
+    payload = base64.urlsafe_b64encode(json.dumps({"sub": "user-test-uuid"}).encode()).decode().rstrip("=")
+    fake_jwt = f"eyJhbGciOiJIUzI1NiJ9.{payload}.fake_signature"
+
+    resp3 = auth_client.get("/sessions", headers={"Authorization": f"Bearer {fake_jwt}"})
+    assert resp3.status_code == 200
+
+

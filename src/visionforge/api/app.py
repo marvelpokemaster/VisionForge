@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -14,7 +14,7 @@ from visionforge.spatial.clearance import FURNITURE_CATALOG, FloorClearanceEngin
 from visionforge.spatial.calibration import apply_scale_to_session
 from visionforge.api.store import SessionStore
 from visionforge.api.live import install_live_routes
-from visionforge.persistence import get_backend, persist_run
+from visionforge.persistence import get_backend, persist_run, persist_artifacts
 
 # Vite's default dev server origin. Override with a comma-separated list via
 # VISIONFORGE_CORS_ORIGINS for a different frontend dev port/host.
@@ -70,9 +70,53 @@ class CalibrateScaleRequest(BaseModel):
     pt_b: Optional[List[float]] = None
 
 
+class SaveFurnitureLayoutRequest(BaseModel):
+    placed_items: List[Dict[str, Any]]
+    pack_spacing: Optional[float] = 0.3
+
+
+def _extract_user_id(request: Request, backend: Any) -> Optional[str]:
+    """Derives user ownership server-side from Supabase auth JWT.
+    Never trusts client-supplied user ID query params or bodies."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        if os.environ.get("VISIONFORGE_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"):
+            raise HTTPException(status_code=401, detail="Authentication required")
+        return None
+
+    parts = auth_header.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Invalid Authorization header format. Expected 'Bearer <token>'")
+    token = parts[1]
+
+    # If connected to real SupabaseBackend with a client, verify token
+    client = getattr(backend, "client", None)
+    if client is not None and hasattr(client, "auth") and hasattr(client.auth, "get_user"):
+        try:
+            user_resp = client.auth.get_user(token)
+            if user_resp and hasattr(user_resp, "user") and user_resp.user:
+                return str(user_resp.user.id)
+        except Exception as e:
+            raise HTTPException(status_code=401, detail=f"Authentication failed: {e}")
+
+    # Fallback / dev: parse unverified sub if JWT format (only when secret is not configured)
+    try:
+        import base64
+        payload_b64 = token.split(".")[1]
+        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(padded))
+        return claims.get("sub")
+    except Exception:
+        if os.environ.get("VISIONFORGE_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"):
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
+        return None
+
+
 ValidatePlacementRequest.model_rebuild()
 AutoPackRequest.model_rebuild()
 CalibrateScaleRequest.model_rebuild()
+SaveFurnitureLayoutRequest.model_rebuild()
+
 
 
 def _validate_id_component(value: str, what: str) -> None:
@@ -143,13 +187,24 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
             }
         }
 
+    @app.get("/health")
+    def health_check():
+        active_live = len(getattr(app.state, "live_sessions", {}))
+        return {
+            "status": "ok",
+            "version": "1.0.0",
+            "backend": backend.__class__.__name__,
+            "active_live_sessions": active_live,
+        }
+
     @app.get("/sessions")
-    def list_sessions():
+    def list_sessions(request: Request):
+        user_id = _extract_user_id(request, backend)
         merged = {sid: _session_summary(sid, run_dir) for sid, run_dir in store.list_sessions().items()}
         # When the backend is Supabase, this also surfaces sessions with no
         # local run directory at all -- for LocalJsonBackend it's typically
         # a subset of what's already discovered above, deduplicated by id.
-        for record in backend.list_sessions():
+        for record in backend.list_sessions(user_id=user_id):
             sid = record["id"]
             if sid not in merged:
                 merged[sid] = _persisted_only_summary(record)
@@ -194,9 +249,17 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found (no run directory, nothing persisted)")
 
     @app.post("/sessions/{session_id}/persist")
-    def persist_session(session_id: str):
+    def persist_session(session_id: str, request: Request):
         run_dir = _run_dir_or_404(session_id)
-        return persist_run(backend, session_id, run_dir)
+        user_id = _extract_user_id(request, backend)
+        result = persist_run(backend, session_id, run_dir, user_id=user_id)
+        try:
+            persisted_arts = persist_artifacts(backend, session_id, run_dir, user_id=user_id)
+            if persisted_arts:
+                result["saved"].extend([f"artifact_{a}" for a in persisted_arts if f"artifact_{a}" not in result["saved"]])
+        except Exception:
+            pass
+        return result
 
     @app.get("/sessions/{session_id}/measurements")
     def get_measurements(session_id: str):
@@ -227,20 +290,56 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
 
     @app.get("/sessions/{session_id}/cloud")
     def get_cloud(session_id: str):
-        run_dir = _run_dir_or_404(session_id)
-        ply_path = run_dir / "p1" / "reconstruction" / "sparse_cloud.ply"
-        if not ply_path.exists():
-            raise HTTPException(status_code=404, detail="sparse_cloud.ply not available for this session")
-        return FileResponse(str(ply_path), media_type="application/octet-stream", filename="sparse_cloud.ply")
+        run_dir = store.get(session_id)
+        if run_dir is not None:
+            ply_path = run_dir / "p1" / "reconstruction" / "sparse_cloud.ply"
+            if ply_path.exists():
+                return FileResponse(str(ply_path), media_type="application/octet-stream", filename="sparse_cloud.ply")
+        # Fall back to durable persistence artifact
+        cloud_bytes = backend.get_artifact(session_id, "sparse_cloud")
+        if cloud_bytes is not None:
+            return Response(content=cloud_bytes, media_type="application/octet-stream",
+                            headers={"Content-Disposition": 'inline; filename="sparse_cloud.ply"'})
+        raise HTTPException(status_code=404, detail="sparse_cloud.ply not available for this session")
 
     @app.get("/sessions/{session_id}/planes/{plane_id}")
     def get_plane_ply(session_id: str, plane_id: str):
         _validate_id_component(plane_id, "plane id")
-        run_dir = _run_dir_or_404(session_id)
-        ply_path = run_dir / "p2" / "planes" / f"{plane_id}.ply"
-        if not ply_path.exists():
-            raise HTTPException(status_code=404, detail=f"Plane PLY '{plane_id}' not available for this session")
-        return FileResponse(str(ply_path), media_type="application/octet-stream", filename=f"{plane_id}.ply")
+        run_dir = store.get(session_id)
+        if run_dir is not None:
+            ply_path = run_dir / "p2" / "planes" / f"{plane_id}.ply"
+            if ply_path.exists():
+                return FileResponse(str(ply_path), media_type="application/octet-stream", filename=f"{plane_id}.ply")
+        # Fall back to durable persistence artifact
+        plane_bytes = backend.get_artifact(session_id, f"plane_{plane_id}")
+        if plane_bytes is not None:
+            return Response(content=plane_bytes, media_type="application/octet-stream",
+                            headers={"Content-Disposition": f'inline; filename="{plane_id}.ply"'})
+        raise HTTPException(status_code=404, detail=f"Plane PLY '{plane_id}' not available for this session")
+
+    @app.post("/sessions/{session_id}/furniture/layout")
+    def save_furniture_layout(session_id: str, req: SaveFurnitureLayoutRequest, request: Request):
+        user_id = _extract_user_id(request, backend)
+        backend.save_furniture_layout(session_id, req.model_dump(), user_id=user_id)
+        run_dir = store.get(session_id)
+        if run_dir is not None and run_dir.exists():
+            (run_dir / "furniture_layout.json").write_text(json.dumps(req.model_dump(), indent=2))
+        return {"status": "saved", "session_id": session_id}
+
+    @app.get("/sessions/{session_id}/furniture/layout")
+    def get_furniture_layout(session_id: str):
+        layout = backend.get_furniture_layout(session_id)
+        if layout is not None:
+            return layout
+        run_dir = store.get(session_id)
+        if run_dir is not None and run_dir.exists():
+            for p in [run_dir / "furniture_layout.json", run_dir / "persistence" / "furniture_layout.json"]:
+                if p.exists():
+                    try:
+                        return json.loads(p.read_text())
+                    except Exception:
+                        pass
+        return {"placed_items": [], "pack_spacing": 0.3}
 
     # ------------------------------------------------------------------
     # Furniture & Metric Scale Endpoints (Phase 4)

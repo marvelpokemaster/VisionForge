@@ -116,3 +116,30 @@ export async function probeBackend(
     if (timer) clearTimeout(timer);
   }
 }
+
+export const AUTH_TOKEN_KEY = "visionforge.authToken";
+
+export function readAuthToken(storage: StorageLike | null = defaultStorage()): string | null {
+  if (!storage) return null;
+  try {
+    return normalizeApiBase(storage.getItem(AUTH_TOKEN_KEY));
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string | null, storage: StorageLike | null = defaultStorage()): void {
+  if (!storage) return;
+  try {
+    if (!token || token.trim() === "") storage.removeItem(AUTH_TOKEN_KEY);
+    else storage.setItem(AUTH_TOKEN_KEY, token.trim());
+  } catch {
+    // ignore
+  }
+}
+
+export function authHeaders(storage: StorageLike | null = defaultStorage()): Record<string, string> {
+  const token = readAuthToken(storage);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+

@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from visionforge.persistence.backend import PersistenceBackend
 from visionforge.persistence.local_backend import LocalJsonBackend
@@ -24,11 +24,16 @@ def get_backend(outputs_root: "Path | None" = None) -> PersistenceBackend:
     return LocalJsonBackend(outputs_root=outputs_root or Path("outputs"))
 
 
-def persist_run(backend: PersistenceBackend, session_id: str, run_dir: Path) -> Dict[str, Any]:
+def persist_run(
+    backend: PersistenceBackend,
+    session_id: str,
+    run_dir: Path,
+    user_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Saves a run directory's room model, scene graph, twin, measurements,
-    and processing status through `backend`. Shared by the API's
-    POST /sessions/{id}/persist and the `visionforge persist` CLI command,
-    so the two never drift."""
+    processing status, and binary artifacts (PLYs) through `backend`. Shared
+    by the API's POST /sessions/{id}/persist and the `visionforge persist` CLI
+    command, so the two never drift."""
     from visionforge.twin.digital_twin import DigitalTwin
     from visionforge.spatial.queries import SpatialQueryEngine
 
@@ -46,9 +51,21 @@ def persist_run(backend: PersistenceBackend, session_id: str, run_dir: Path) -> 
     input_type = twin.provenance.get("input_type", "unknown")
     overall_status = "success" if stage_status and all(v == "success" for v in stage_status.values()) else "partial"
 
+    scale = twin.provenance.get("scale", {})
+    scale_factor = float(scale.get("scale_factor", 1.0))
+    metric_available = bool(scale.get("metric_available", False))
+
     saved = []
 
-    backend.save_session(session_id, input_type=input_type, video_name=video_name, status=overall_status)
+    backend.save_session(
+        session_id,
+        input_type=input_type,
+        video_name=video_name,
+        status=overall_status,
+        user_id=user_id,
+        scale_factor=scale_factor,
+        metric_available=metric_available,
+    )
     saved.append("session")
 
     if twin.room_model is not None:
@@ -77,3 +94,63 @@ def persist_run(backend: PersistenceBackend, session_id: str, run_dir: Path) -> 
         saved.append("processing_status")
 
     return {"session_id": session_id, "saved": saved}
+
+
+def persist_artifacts(
+    backend: PersistenceBackend,
+    session_id: str,
+    run_dir: Path,
+    user_id: Optional[str] = None,
+) -> List[str]:
+    """Uploads large binary artifacts (sparse_cloud.ply, plane PLYs, etc.)
+    from a run directory to durable backend storage (e.g. Supabase Storage)."""
+    run_dir = Path(run_dir)
+    saved_artifacts = []
+
+    # Persist furniture layout if present
+    for layout_file in [run_dir / "furniture_layout.json", run_dir / "persistence" / "furniture_layout.json"]:
+        if layout_file.exists():
+            try:
+                layout_data = json.loads(layout_file.read_text())
+                actual_layout = layout_data.get("layout", layout_data)
+                backend.save_furniture_layout(session_id, actual_layout, user_id=user_id)
+                saved_artifacts.append("furniture_layout")
+                break
+            except Exception:
+                pass
+
+    # Persist large artifacts (sparse_cloud.ply, plane PLYs) to durable storage
+    sparse_ply = run_dir / "p1" / "reconstruction" / "sparse_cloud.ply"
+    if sparse_ply.exists():
+        try:
+            backend.save_artifact(
+                session_id=session_id,
+                artifact_type="sparse_cloud",
+                content=sparse_ply.read_bytes(),
+                filename="sparse_cloud.ply",
+                user_id=user_id,
+                content_type="application/octet-stream",
+            )
+            saved_artifacts.append("sparse_cloud")
+        except Exception:
+            pass
+
+    planes_dir = run_dir / "p2" / "planes"
+    if planes_dir.exists():
+        for p_file in planes_dir.glob("*.ply"):
+            try:
+                backend.save_artifact(
+                    session_id=session_id,
+                    artifact_type=f"plane_{p_file.stem}",
+                    content=p_file.read_bytes(),
+                    filename=p_file.name,
+                    user_id=user_id,
+                    content_type="application/octet-stream",
+                )
+                saved_artifacts.append(f"plane_{p_file.stem}")
+            except Exception:
+                pass
+
+    return saved_artifacts
+
+
