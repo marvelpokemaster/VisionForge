@@ -23,10 +23,10 @@ export function getSupabaseClient(): SupabaseClient | null {
       });
 
       // Synchronize session token to backend authHeaders()
-      client.auth.onAuthStateChange((_event, session) => {
+      client.auth.onAuthStateChange((event, session) => {
         if (session?.access_token) {
           setAuthToken(session.access_token);
-        } else {
+        } else if (event === "SIGNED_OUT") {
           setAuthToken(null);
         }
       });

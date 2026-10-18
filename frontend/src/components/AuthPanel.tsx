@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { getCurrentUser, signInWithEmail, signOut, signUpWithEmail, getSupabaseClient } from "../lib/supabase";
+import { getCurrentSession, getCurrentUser, signInWithEmail, signOut, signUpWithEmail, getSupabaseClient } from "../lib/supabase";
 
 interface Props {
   onAuthChange?: (user: User | null) => void;
@@ -66,9 +66,15 @@ export default function AuthPanel({ onAuthChange }: Props) {
           setErrorMsg(error.message);
         } else {
           setUser(u);
-          setSuccessMsg("Account created and signed in!");
-          setPassword("");
-          setExpanded(false);
+          const s = await getCurrentSession();
+          if (s?.access_token) {
+            setSuccessMsg("Account created and signed in!");
+            setPassword("");
+            setExpanded(false);
+          } else {
+            setSuccessMsg("Account created! Please check your email to confirm your account, then sign in.");
+            setMode("signin");
+          }
         }
       }
     } finally {

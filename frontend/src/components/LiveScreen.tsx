@@ -3,6 +3,7 @@ import Viewer3D, { type Toggles } from "./Viewer3D";
 import { navigate } from "../lib/route";
 import { registerBackGuard } from "../lib/backButton";
 import BackendField from "./BackendField";
+import AuthPanel from "./AuthPanel";
 import IntrinsicsField, { loadStoredIntrinsics } from "./IntrinsicsField";
 import { configureMessage, type ParsedCameras } from "../live/intrinsics";
 import { RECORD_KEY, readStored, writeStored } from "../lib/stored";
@@ -141,6 +142,11 @@ export default function LiveScreen() {
     // Verify authentication before attempting connection
     const currentSession = await getCurrentSession();
     const token = currentSession?.access_token ?? readAuthToken();
+    if (!token) {
+      setError("Please sign in to your Supabase account to start live tracking.");
+      setShowAdvanced(true);
+      return;
+    }
 
     const video = videoRef.current;
     if (!video) return;
@@ -269,6 +275,9 @@ export default function LiveScreen() {
       {/* Collapsible Settings Drawer */}
       {showAdvanced && (
         <div className="live-settings-drawer">
+          <div style={{ marginBottom: "12px" }}>
+            <AuthPanel onAuthChange={(u) => setIsAuthenticated(Boolean(u) || Boolean(readAuthToken()))} />
+          </div>
           <BackendField disabled={running || stopping} />
           <div className="settings-grid">
             <label className="field-group">
@@ -315,10 +324,12 @@ export default function LiveScreen() {
       {/* Auth Prompt Banner if not signed in */}
       {isAuthenticated === false && (
         <div className="auth-alert-banner">
-          <span>🔒 Sign in to save and stream 3D digital twins to your private cloud storage.</span>
-          <button type="button" className="auth-alert-btn" onClick={() => navigate({ kind: "home" })}>
-            Sign In / Up
-          </button>
+          <div style={{ width: "100%" }}>
+            <div style={{ marginBottom: "6px", fontSize: "0.85em", fontWeight: 500 }}>
+              🔒 Sign in to save and stream 3D digital twins to your cloud storage:
+            </div>
+            <AuthPanel onAuthChange={(u) => setIsAuthenticated(Boolean(u) || Boolean(readAuthToken()))} />
+          </div>
         </div>
       )}
 
