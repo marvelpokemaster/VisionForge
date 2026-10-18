@@ -5,17 +5,23 @@ VisionForge is a **purely classical computer vision** monocular 3D room reconstr
 
 * **Repository State:** Branch `feature/phase4-furniture-scale`.
 * **Testing Status:**
-  * **Backend (Python):** 207 passed, 1 skipped, 0 failed (100% green in 22.85s).
-  * **Frontend (Vitest):** 12 test files, 70 passed (100% green in 599ms).
-  * **Build:** Frontend builds cleanly (`proxychains npm run build` in 1.83s).
-  * **Mobile Sync:** Capacitor 8 synced (`proxychains npx cap sync android` in 0.05s).
-  * **Android Build:** `BUILD SUCCESSFUL in 15s` (`assembleDebug`).
-  * **Physical Device:** Installed and verified on physical Redmi Note 13 5G (`rwkbgmhir4c6vch6`) with real-time UI interactions, 3D viewing, furniture placement, scale calibration, and live tracking navigation. Screenshots preserved in `docs/results/phase4_mobile_verification/`.
+  * **Backend (Python):** 225 passed, 1 skipped, 0 failed (100% green in 23.44s).
+  * **Frontend (Vitest):** 12 test files, 73 passed (100% green in 571ms).
+  * **Build:** Frontend builds cleanly (`npm run build` in 1.90s).
+  * **Mobile Sync:** Capacitor 8 synced (`npx cap sync android` in 0.06s).
+  * **Android Build:** `BUILD SUCCESSFUL in 2s` (`assembleDebug`).
+  * **Physical Device:** Installed and verified on physical Redmi Note 13 5G (`rwkbgmhir4c6vch6`) with real-time UI interactions, 3D viewing, furniture placement, scale calibration, and live tracking navigation. Screenshot verified.
+  * **Cloud Deployment & Security:**
+    * **Firebase Project:** Dedicated project `visionforge-spatial` (Project Number: `548013373123`).
+    * **Security Rules:** Default-deny `firestore.rules` and `firestore.indexes.json` deployed and released to Cloud Firestore. Client-direct SDK access denied; all access mediated through authenticated FastAPI backend.
+    * **Server-Side Auth & Ownership:** Verified Firebase ID tokens required in production. Cross-user access denied (403 Forbidden). No unverified JWT fallback.
+    * **Web App Hosting:** Live on Firebase Hosting at `https://visionforge-spatial.web.app` (HTTP/2 200).
+    * **Docker Backend:** Production Docker container configured with PyCOLMAP, Open3D, OpenCV, and Firebase Admin SDK (`render.yaml` and `Dockerfile`).
 * **Milestone Reached:** 
   * Phase 1: Ingestion & Offline SfM (Complete & Verified).
   * Phase 2: Batch Geometry, Scene Graph, Digital Twin, Three.js Web Viewer (Complete & Verified).
   * Phase 3: Real-Time Live Monocular Tracking over WebSocket & Android Streaming (Complete & Verified on physical hardware; up-axis fusion prioritized camera gravity; seeded deterministic RANSAC).
-  * Phase 4: Metric Scale Calibration, 2D Floor Clearance Engine, 3D Interactive Furniture Placement & "Can It Fit?" Auto-Pack Analyzer (Complete & Verified on physical device; single-coordinate scale contract enforced with double-scaling eliminated; scene graph synchronized; missing geometry UI warnings added; production LAN IP hardcoding removed).
+  * Phase 4: Metric Scale Calibration, 2D Floor Clearance Engine, 3D Interactive Furniture Placement, "Can It Fit?" Auto-Pack Analyzer, and Production Cloud Release (Complete & Verified).
 
 ---
 
