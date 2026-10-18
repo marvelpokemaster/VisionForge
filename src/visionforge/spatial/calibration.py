@@ -137,6 +137,23 @@ def apply_scale_to_session(
 
     room_model_path.write_text(json.dumps(scaled_model, indent=2))
 
+    # Also update scene_graph.json if present
+    for sg_path in [session_dir / "p3" / "scene_graph.json", session_dir / "scene_graph.json"]:
+        if sg_path.exists():
+            try:
+                sg = json.loads(sg_path.read_text())
+                for node in sg.get("nodes", []):
+                    if node.get("type") == "room":
+                        props = node.setdefault("properties", {})
+                        props["scale"] = scaled_model["scale"]
+                        props["length"] = scaled_model["room"]["length"]
+                        props["width"] = scaled_model["room"]["width"]
+                        props["height"] = scaled_model["room"]["height"]
+                        props["floor_area"] = scaled_model["room"]["floor_area"]
+                sg_path.write_text(json.dumps(sg, indent=2))
+            except Exception:
+                pass
+
     # Also update twin.json if present
     twin_path = session_dir / "twin.json"
     if twin_path.exists():
@@ -145,6 +162,15 @@ def apply_scale_to_session(
         twin["measurements"] = scaled_model["room"]
         if "room_model" in twin and twin["room_model"]:
             twin["room_model"] = scaled_model
+        if "scene_graph" in twin and twin["scene_graph"]:
+            for node in twin["scene_graph"].get("nodes", []):
+                if node.get("type") == "room":
+                    props = node.setdefault("properties", {})
+                    props["scale"] = scaled_model["scale"]
+                    props["length"] = scaled_model["room"]["length"]
+                    props["width"] = scaled_model["room"]["width"]
+                    props["height"] = scaled_model["room"]["height"]
+                    props["floor_area"] = scaled_model["room"]["floor_area"]
         twin_path.write_text(json.dumps(twin, indent=2))
 
     return scaled_model

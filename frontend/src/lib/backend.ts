@@ -42,7 +42,7 @@ export function validateApiBase(raw: string): string | null {
   const v = normalizeApiBase(raw);
   if (v === null) return null;
   if (/^https?:\/\/[^/\s]+/i.test(v) || v.startsWith("/")) return null;
-  return `"${v}" is not an http(s) URL; expected e.g. http://192.168.1.37:8000`;
+  return `"${v}" is not an http(s) URL; expected e.g. http://<server-ip>:8000`;
 }
 
 /** The stored override, or null when none / unreadable. */

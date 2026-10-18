@@ -270,13 +270,14 @@ class FloorClearanceEngine:
         room = room_model.get("room", {}) or {}
         poly = room.get("bounding_polygon_room") or []
         self.raw_polygon = poly
-        # Polygon in scaled/metric room coordinates (meters)
-        # Note: If metric_available is False, coordinates are treated in arbitrary units
+        # Polygon in canonical room coordinates (meters if calibrated, matching room_model and Viewer3D).
+        # We must NOT multiply by scale_factor here because calibration.py / room_model.py
+        # has already applied scale_factor to bounding_polygon_room and floor_area.
         self.floor_polygon = [
-            [float(pt[0]) * self.scale_factor, float(pt[1]) * self.scale_factor]
+            [float(pt[0]), float(pt[1])]
             for pt in poly
         ]
-        self.floor_area = float(room.get("floor_area", 0.0) or 0.0) * (self.scale_factor ** 2)
+        self.floor_area = float(room.get("floor_area", 0.0) or 0.0)
 
     def _resolve_furniture_dims(
         self,

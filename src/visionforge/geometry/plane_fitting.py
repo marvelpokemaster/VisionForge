@@ -906,7 +906,13 @@ def _fuse_up_sources(
         gravity_confs = [c for name, _, c in members if name == "camera_gravity"]
         gravity_weight = sum(gravity_confs)
 
-        source_weight = gravity_weight + plane_weight
+        # When physical camera gravity is observed with high confidence (e.g. >= 0.8
+        # on an upright phone), give it physical precedence so that noisy plane heuristics
+        # cannot overturn the empirical vertical axis.
+        if gravity_weight >= 0.8:
+            source_weight = 1.5 * gravity_weight + plane_weight
+        else:
+            source_weight = gravity_weight + plane_weight
 
         agreement_fraction = (
             len(members)
@@ -1445,10 +1451,15 @@ def extract_dominant_planes(
     num_iterations: int = 1000,
     min_ratio: float = 0.05,
     max_planes: int = 10,
+    seed: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """
     Iteratively extract dominant RANSAC planes.
     """
+    if seed is not None:
+        o3d.utility.random.seed(int(seed))
+        np.random.seed(int(seed))
+
     planes = []
 
     remaining_pcd = pcd

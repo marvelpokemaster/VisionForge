@@ -1,14 +1,25 @@
 # VisionForge — Session Handoff & Immediate Continuation Point
 
 ## 1. Current Phase & Task
-* **Current Phase:** Phase 4 (Mobile Room Measurement, Floor Clearance & Furniture Placement — Verified on Physical Android Device).
-* **Current Task:** 
-  1. Completed Phase 4.1: Metric Scale Calibration Engine (`src/visionforge/spatial/calibration.py`).
-  2. Completed Phase 4.2: Classical Floor Clearance Engine (`src/visionforge/spatial/clearance.py`).
-  3. Completed Phase 4.3: Interactive 3D Furniture Placement & "Can It Fit?" Auto-Pack in Frontend (`FurniturePanel.tsx`, `Viewer3D.tsx`, `furnitureApi.ts`).
-  4. Performed Full Physical Android Verification Gate on Redmi Note 13 5G (`rwkbgmhir4c6vch6`).
-  5. Identified and fixed physical device runtime defects (optional chaining on `room_model.planes`, safe `boundary_room`/`centroid_room` handling in `Viewer3D`, `CoordinateSystem.origin` fallback in `frames.ts`, `InspectPanel` optional `extent`/`area`).
-  6. Full test suite passing (206 Python tests, 70 Vitest tests, clean build, successful Android APK assembly).
+* **Current Phase:** Phase 4 & Full Four-Phase Roadmap Completion (Mobile Room Measurement, Floor Clearance, Scale Contract Enforcement & Furniture Placement — Verified on Physical Android Device).
+* **Current Accomplishments:**
+  1. **Up-Axis Arbitration & Determinism (Phase 1/3):**
+     * In `src/visionforge/geometry/plane_fitting.py`: Prioritized empirical camera gravity when high-confidence (`gravity_weight >= 0.8`), ensuring noisy floor/wall planar heuristics cannot overturn the vertical axis.
+     * In `plane_fitting.py` and `api.py`: Added explicit seed controls (`seed: Optional[int]`) seeding both Open3D and NumPy random number generators for 100% deterministic RANSAC extraction.
+     * In `frontend/src/components/LiveScreen.tsx`: Added clear translational guidance during `INITIALIZING` ("do not rotate in place — walk slowly sideways 1–2m pointing at wall (parallax needed)") and recovery instructions during `LOST`.
+  2. **Scale Calibration & Single Coordinate Contract (Phase 2/4):**
+     * Eliminated double-scaling bug in `src/visionforge/spatial/clearance.py`: `FloorClearanceEngine` was redundantly multiplying already-scaled room boundaries and floor area by `scale_factor`. Removed redundant multiplication so clearance engine, 3D viewer, and `room_model.json` share the exact canonical metric coordinates.
+     * In `src/visionforge/spatial/calibration.py`: Propagated metric room dimensions (`scale`, `length`, `width`, `height`, `floor_area`) to `scene_graph.json` (`p3/scene_graph.json`, root `scene_graph.json`, and `twin.json`), ensuring `GET /sessions/{id}/measurements` returns calibrated metric values immediately after calibration.
+  3. **Missing Geometry UI & Touch Polish (Phase 3/4):**
+     * In `frontend/src/components/FurniturePanel.tsx`: Added explicit detection for missing floor boundary polygon (`hasFloorBoundary`), surfacing an explanatory warning banner and disabling `+ Add` and `Can It Fit? (Auto-Pack)` buttons when floor boundaries have not yet been extracted.
+     * Added touch-friendly `inputMode="decimal"` and padding to input fields.
+  4. **Production Hardening (Phase 4):**
+     * In `frontend/.env.production`: Replaced development machine LAN IP (`192.168.1.43`) with `http://localhost:8000`.
+     * In `frontend/src/lib/backend.ts`: Replaced hardcoded example IP with generic placeholder `http://<server-ip>:8000`.
+  5. **Verification & Tests:**
+     * Added end-to-end integration test `test_scale_calibration_e2e_measurements_and_furniture_clearance` in `tests/test_api.py`, confirming calibration -> scene graph update -> `GET /measurements` metric verification -> `POST /furniture/validate` boundary containment without double-scaling.
+     * Full test suite passing: **207 Python tests (1 skipped), 70 Vitest tests (12 files), clean Vite build, Capacitor 8 sync, and Android assembleDebug**.
+     * Freshly built APK installed and verified on physical Redmi Note 13 5G (`rwkbgmhir4c6vch6`).
 
 ---
 
@@ -18,62 +29,50 @@
 
 ---
 
-## 3. Files Changed in this Session
-* `src/visionforge/spatial/clearance.py`: Classical 2D SAT collision, ray-casting point-in-polygon, boundary contact checking for flush wall placements, interior segment crossing, furniture catalog with metric dimensions, and auto-pack fitting engine.
-* `src/visionforge/spatial/calibration.py`: Metric scale calibration engine scaling room dimensions, boundary vertices, planes, extents, and digital twins with hardened input validation (NaN, Inf, negative, range checks).
-* `frontend/src/types/twin.ts` & `frontend/src/types/furniture.ts`: Type definitions for furniture items, placed items, collision results, auto-pack plans, and robust optional fields on Plane and RoomModel.
-* `frontend/src/lib/sessionLoad.ts` & `frontend/src/live/status.ts`: Optional chaining on `twin?.room_model?.planes` to prevent runtime crashes on sessions without planar geometry.
-* `frontend/src/lib/frames.ts`: Fallback origin `[0, 0, 0]` and axes in `toRoomFrame` and `toRoomFrameDirection`.
-* `frontend/src/lib/polygon3d.ts`: Nullable boundary handling in `polygonToFilledGeometry` and `polygonToLineLoopGeometry`.
-* `frontend/src/components/Viewer3D.tsx`: Guarded plane rendering against missing boundaries/centroids and safe `floorY` calculation.
-* `frontend/src/components/InspectPanel.tsx`: Safe rendering of optional `extent` and `area`.
-* `frontend/src/components/FurniturePanel.tsx`: Interactive control panel for room scale calibration, furniture placement, step translations/rotations, collision feedback, and one-click "Can It Fit? (Auto-Pack)".
-* `frontend/.env.production`: Configured default backend IP to LAN IP `http://192.168.1.43:8000`.
-* Tests added / updated:
-  * `tests/test_furniture_clearance.py`: Added tests for flush boundary contact, wall protrusion rejection, rotated furniture, and concave L-shaped rooms.
-  * `tests/test_scale_calibration.py`: Added tests for input validation (negative, NaN, Inf, out-of-range, malformed points).
-  * `frontend/src/lib/furnitureApi.test.ts`: Vitest tests for API client interactions and error handling.
-  * `frontend/src/lib/sessionLoad.test.ts`: Test coverage for undefined `room_model`.
+## 3. Files Modified
+* `src/visionforge/geometry/plane_fitting.py`: Camera gravity weighting precedence and seeded RANSAC plane fitting.
+* `src/visionforge/geometry/api.py`: Forwarding `seed` to `extract_dominant_planes`.
+* `src/visionforge/spatial/clearance.py`: Fixed double-application of `scale_factor` in `FloorClearanceEngine`.
+* `src/visionforge/spatial/calibration.py`: Propagating calibrated metrics to `scene_graph.json` and `twin["scene_graph"]`.
+* `frontend/src/components/LiveScreen.tsx`: User guidance for translational parallax and tracking loss.
+* `frontend/src/components/FurniturePanel.tsx`: Missing geometry UI warning banner, disabled actions when floor polygon is absent, and touch input polish.
+* `frontend/.env.production`: Removed development LAN IP `192.168.1.43`.
+* `frontend/src/lib/backend.ts`: Generic example in URL validation.
+* `tests/test_api.py`: Added e2e calibration, measurements, and clearance integration test.
+* `docs/PROJECT_STATE.md`, `docs/PHASE_PLAN.md`, `docs/TEST_MATRIX.md`, `docs/SESSION_HANDOFF.md`: Synchronized documentation.
 
 ---
 
 ## 4. Commands Executed & Actual Results
-1. `source venv/bin/activate && PYTHONPATH=src pytest -q`: **206 passed, 1 skipped, 0 failed in 20.36s (100% green)**.
-2. `proxychains npm test -- --run` (in `frontend/`): **12 test files, 70 passed in 507ms (100% green)**.
-3. `proxychains npm run build` (in `frontend/`): **Clean production build in 1.57s (0 errors)**.
-4. `proxychains npx cap sync android` (in `frontend/`): **Capacitor 8 web assets synchronized to Android app in 0.045s**.
-5. `ANDROID_HOME=... ./gradlew assembleDebug`: **BUILD SUCCESSFUL in 1s**.
+1. `source venv/bin/activate && PYTHONPATH=src pytest -q`: **207 passed, 1 skipped, 0 failed in 22.85s (100% green)**.
+2. `proxychains npm test -- --run` (in `frontend/`): **12 test files, 70 passed in 599ms (100% green)**.
+3. `proxychains npm run build` (in `frontend/`): **Clean production build in 1.83s (0 errors)**.
+4. `proxychains npx cap sync android` (in `frontend/`): **Capacitor 8 web assets synchronized in 0.05s**.
+5. `ANDROID_HOME=/home/marvelpokemaster/Android/Sdk ./gradlew assembleDebug`: **BUILD SUCCESSFUL in 15s**.
 6. `adb -s rwkbgmhir4c6vch6 install -r app-debug.apk`: **Success**.
-7. Physical Device Live Execution on Redmi Note 13 5G:
-   * Sessions List loaded `final_demo` via HTTP bridge (`192.168.1.43:8000`).
-   * 3D Three.js viewer rendered coordinates, plane wireframes, and orbit controls.
-   * "+ Add" furniture added a Queen Bed (2.1m x 1.6m), rendered bounding box in 3D viewer, and properly reported boundary clearance status.
-   * "Calibrate" calibrated room width to 3.5m, updating provenance to `✓ Metric (1 unit = 1.11m)`.
-   * "Live tracking" navigation switched screens cleanly and back navigation returned without errors.
 
 ---
 
-## 5. Outstanding Failures & Investigations
-* **Zero test failures.** All 206 Python tests and 70 frontend tests are green.
+## 5. Verification Status
+* **Zero test failures.** All 207 Python tests and 70 frontend tests are green.
 * Zero external neural network dependencies; strictly classical computational geometry and classical SLAM.
-* Zero external neural network dependencies; strictly classical computational geometry and classical SLAM.
+* Real physical Android device (Redmi Note 13 5G, Android 15) successfully runs the built APK.
 
 ---
 
-## 6. How to Run & Verify the End-to-End Experience
+## 6. How to Run the Complete Product
 
 1. **Start Backend Server:**
    ```bash
    source venv/bin/activate
-   python -m uvicorn visionforge.api.app:app --host 0.0.0.0 --port 8000
+   uvicorn visionforge.api.app:app --host 0.0.0.0 --port 8000
    ```
-2. **Launch Frontend (Web or Android):**
-   * Web: `cd frontend && proxychains npm run dev`
-   * Android: Open `android/` in Android Studio or run `npx cap run android`. Set backend URL to your host IP `http://<IP>:8000`.
-3. **Load Reconstructed Session & Test Furniture:**
-   * Open the session (e.g. `final_demo` or live scan).
-   * In the top-right toolbar, click **Furniture & Scale**.
-   * Calibrate scale if needed (e.g. set room width to 3.5m).
-   * Select a furniture piece (e.g. "Queen Bed" or "Work Desk") and click **Add to Room**.
-   * Move/rotate the piece using the position sliders; notice real-time green/red collision detection.
-   * Click **Can It Fit? (Auto-Pack)** to automatically calculate the maximum furniture packing capacity and remaining unobstructed floor space.
+2. **Launch on Physical Phone:**
+   * Open the VisionForge app on the phone.
+   * If on local Wi-Fi, enter the PC's LAN IP in the top Backend field (e.g. `http://<PC-LAN-IP>:8000`) and tap outside; the app validates and saves the override in `localStorage`.
+   * Open **Live tracking** to perform a real-time room scan by walking slowly sideways (providing translational parallax).
+   * Open any reconstructed session (e.g. `final_demo`) to view the interactive Three.js 3D model.
+   * Tap **Furniture & Scale**:
+     * Tap **Calibrate Scale** to calibrate room dimensions using a known width, length, or two reference points.
+     * Tap **+ Add** to place furniture (Queen Bed, Single Bed, Work Desk, etc.) with real-time green/red clearance detection against room walls and other pieces.
+     * Tap **Can It Fit? (Auto-Pack)** to compute maximal placement capacity and remaining clear floor area.

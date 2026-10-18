@@ -130,6 +130,7 @@ def build_room_model(points: np.ndarray, cameras: Optional[list], options: Optio
         distance_threshold=plane_distance_threshold,
         min_ratio=options.min_plane_inliers,
         max_planes=options.max_planes,
+        seed=seed,
     )
     log(f"Found {len(planes)} dominant plane segments before merging coplanar segments.")
     planes = merge_coplanar_planes(planes, distance_threshold=plane_distance_threshold)

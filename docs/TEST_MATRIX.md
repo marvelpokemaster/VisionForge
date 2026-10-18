@@ -39,7 +39,7 @@ npm run build
 | **P4 Metric Scale Calibration** | `tests/test_scale_calibration.py` | Automated Unit | **PASS** | 7/7 tests pass (uniform scaling, 3D vertices, two-point, input validation). |
 | **P4 Floor Clearance Engine** | `tests/test_furniture_clearance.py` | Automated Unit | **PASS** | 8/8 tests pass (SAT 2D collision, flush wall boundary contact, concave rooms, auto-pack). |
 | **P4 Digital Twin** | `tests/test_twin.py`, `test_twin_from_parts.py` | Automated Unit | **PASS** | 10/10 tests pass (round-trip JSON serialization, provenance tracking). |
-| **FastAPI REST API** | `tests/test_api.py` | Automated Integration | **PASS** | 30/30 tests pass (sessions, cloud, furniture catalog, placement validation, auto-pack, calibration). |
+| **FastAPI REST API** | `tests/test_api.py` | Automated Integration | **PASS** | 32/32 tests pass (sessions, cloud, furniture catalog, placement validation, auto-pack, calibration, e2e scale calibration and boundary clearance). |
 | **FastAPI Persistence** | `tests/test_persistence.py` | Automated Unit | **PASS** | 26/26 tests pass (LocalJsonBackend & Supabase mock). |
 | **Phase 3 Live Tracker Core** | `tests/test_live_tracker.py` | Automated Synthetic | **PASS** | 10/10 tests pass (KLT tracking, PnP, keyframe decision gate). |
 | **Phase 3 Live Timing** | `tests/test_live_timing.py` | Automated Unit | **PASS** | 3/3 tests pass (frame interval measurement, percentiles). |
@@ -61,6 +61,6 @@ npm run build
 
 ## 3. Known Deficiencies & Caveats
 
-1. **Zero Pytest Failures:** All 206 backend tests passing (1 skipped: optional PyCOLMAP end-to-end on synthetic data when running headless).
+1. **Zero Pytest Failures:** All 207 backend tests passing (1 skipped: optional PyCOLMAP end-to-end on synthetic data when running headless).
 2. **Monocular Parallax Requirement:** Live tracking requires sideways translational motion to triangulate 3D points; pure rotational motion keeps tracker in `INITIALIZING`.
 3. **Open3D Hash-Based Voxel Determinism:** Addressed via stabilized platform runtime fixtures.

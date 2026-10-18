@@ -48,6 +48,8 @@ export default function FurniturePanel({
   }, []);
 
   const scale = twin.scale || twin.provenance?.scale || { metric_available: false, scale_factor: 1.0 };
+  const floorBoundary = twin?.room_model?.room?.bounding_polygon_room;
+  const hasFloorBoundary = Boolean(floorBoundary && Array.isArray(floorBoundary) && floorBoundary.length >= 3);
 
   // Handle Scale Calibration
   const handleCalibrate = async () => {
@@ -172,6 +174,13 @@ export default function FurniturePanel({
         Furniture Placement & Clearance
       </h3>
 
+      {/* Missing Floor Boundary Notice */}
+      {!hasFloorBoundary && (
+        <div style={{ padding: "0.5rem", background: "#3b1e1e", border: "1px solid #ef4444", borderRadius: "4px", fontSize: "0.8rem", color: "#fca5a5", marginBottom: "0.75rem" }}>
+          ⚠ Room floor boundary polygon is unavailable. A room floor boundary polygon must be detected from geometry before planning furniture.
+        </div>
+      )}
+
       {/* Metric Scale Calibration Section */}
       <div style={{ marginBottom: "0.75rem", padding: "0.5rem", background: "#252830", borderRadius: "4px", fontSize: "0.85rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.4rem" }}>
@@ -184,23 +193,24 @@ export default function FurniturePanel({
           <select
             value={calibrateDimension}
             onChange={(e) => setCalibrateDimension(e.target.value as any)}
-            style={{ background: "#1e2128", color: "#fff", border: "1px solid #374151", borderRadius: "4px", padding: "0.2rem" }}
+            style={{ background: "#1e2128", color: "#fff", border: "1px solid #374151", borderRadius: "4px", padding: "0.3rem" }}
           >
             <option value="room_width">Room Width</option>
             <option value="room_length">Room Length</option>
           </select>
           <input
             type="number"
+            inputMode="decimal"
             step="0.1"
             value={calibrateDistance}
             onChange={(e) => setCalibrateDistance(parseFloat(e.target.value) || 0)}
-            style={{ width: "60px", background: "#1e2128", color: "#fff", border: "1px solid #374151", borderRadius: "4px", padding: "0.2rem" }}
+            style={{ width: "65px", background: "#1e2128", color: "#fff", border: "1px solid #374151", borderRadius: "4px", padding: "0.3rem" }}
           />
           <span>m</span>
           <button
             onClick={handleCalibrate}
             disabled={isCalibrating}
-            style={{ padding: "0.2rem 0.6rem", background: "#3b82f6", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", marginLeft: "auto" }}
+            style={{ padding: "0.3rem 0.75rem", background: "#3b82f6", color: "#fff", border: "none", borderRadius: "4px", cursor: isCalibrating ? "wait" : "pointer", marginLeft: "auto" }}
           >
             {isCalibrating ? "..." : "Calibrate"}
           </button>
@@ -215,7 +225,7 @@ export default function FurniturePanel({
           <select
             value={selectedFurnitureId}
             onChange={(e) => setSelectedFurnitureId(e.target.value)}
-            style={{ flex: 1, background: "#252830", color: "#fff", border: "1px solid #374151", borderRadius: "4px", padding: "0.35rem" }}
+            style={{ flex: 1, background: "#252830", color: "#fff", border: "1px solid #374151", borderRadius: "4px", padding: "0.4rem" }}
           >
             {Object.values(catalog).map((item) => (
               <option key={item.id} value={item.id}>
@@ -225,7 +235,16 @@ export default function FurniturePanel({
           </select>
           <button
             onClick={handleAddPiece}
-            style={{ padding: "0.35rem 0.75rem", background: "#10b981", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+            disabled={!hasFloorBoundary}
+            title={hasFloorBoundary ? "Add piece to room" : "Floor boundary polygon is unavailable"}
+            style={{
+              padding: "0.4rem 0.85rem",
+              background: hasFloorBoundary ? "#10b981" : "#4b5563",
+              color: "#fff",
+              border: "none",
+              borderRadius: "4px",
+              cursor: hasFloorBoundary ? "pointer" : "not-allowed",
+            }}
           >
             + Add
           </button>
@@ -235,8 +254,17 @@ export default function FurniturePanel({
         <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
           <button
             onClick={handleAutoPack}
-            disabled={isPacking}
-            style={{ flex: 1, padding: "0.35rem", background: "#8b5cf6", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer" }}
+            disabled={isPacking || !hasFloorBoundary}
+            title={hasFloorBoundary ? "Auto-pack candidate furniture" : "Floor boundary polygon is unavailable"}
+            style={{
+              flex: 1,
+              padding: "0.4rem",
+              background: hasFloorBoundary ? "#8b5cf6" : "#4b5563",
+              color: "#fff",
+              border: "none",
+              borderRadius: "4px",
+              cursor: hasFloorBoundary && !isPacking ? "pointer" : "not-allowed",
+            }}
           >
             {isPacking ? "Analyzing..." : "Can It Fit? (Auto-Pack)"}
           </button>
@@ -244,10 +272,11 @@ export default function FurniturePanel({
             Gap:
             <input
               type="number"
+              inputMode="decimal"
               step="0.1"
               value={packSpacing}
               onChange={(e) => setPackSpacing(parseFloat(e.target.value) || 0.1)}
-              style={{ width: "45px", marginLeft: "0.2rem", background: "#252830", color: "#fff", border: "1px solid #374151", borderRadius: "3px" }}
+              style={{ width: "45px", marginLeft: "0.2rem", background: "#252830", color: "#fff", border: "1px solid #374151", borderRadius: "3px", padding: "0.2rem" }}
             />
             m
           </label>

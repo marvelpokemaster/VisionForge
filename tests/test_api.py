@@ -341,3 +341,65 @@ def test_scale_calibrate(client, run_dir):
     assert data["success"] is True
     assert data["scale"]["metric_available"] is True
     assert data["room"]["width"] == pytest.approx(5.0)
+
+
+def test_scale_calibration_e2e_measurements_and_furniture_clearance(client, run_dir):
+    # 1. Calibrate room width from 3.0m to 6.0m (scale_factor = 2.0)
+    resp = client.post("/sessions/final_demo/scale/calibrate", json={
+        "reference_type": "room_width",
+        "known_distance_meters": 6.0,
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["scale"]["scale_factor"] == pytest.approx(2.0)
+    assert data["room"]["width"] == pytest.approx(6.0)
+    assert data["room"]["length"] == pytest.approx(8.0)
+    assert data["room"]["height"] == pytest.approx(5.0)
+    assert data["room"]["floor_area"] == pytest.approx(48.0)
+
+    # 2. Check GET /sessions/{id}/measurements reflects calibrated dimensions via scene graph
+    m_resp = client.get("/sessions/final_demo/measurements")
+    assert m_resp.status_code == 200
+    m_data = m_resp.json()
+    assert m_data["width"]["metric"] is True
+    assert m_data["width"]["units"] == "m"
+    assert m_data["width"]["value"] == pytest.approx(6.0)
+    assert m_data["length"]["metric"] is True
+    assert m_data["length"]["units"] == "m"
+    assert m_data["length"]["value"] == pytest.approx(8.0)
+    assert m_data["height"]["value"] == pytest.approx(5.0)
+    assert m_data["floor_area"]["value"] == pytest.approx(48.0)
+
+    # 3. Check GET /sessions/{id}/twin reflects calibrated measurements
+    twin_resp = client.get("/sessions/final_demo/twin")
+    assert twin_resp.status_code == 200
+    twin_data = twin_resp.json()
+    assert twin_data["room_model"]["room"]["width"] == pytest.approx(6.0)
+
+    # 4. Check POST /sessions/{id}/furniture/validate
+    # Scaled room floor polygon is [[0, 0], [8, 0], [8, 6], [0, 6]].
+    # Placing a 1.6m x 2.0m bed at center (4.0, 3.0) must be VALID and fully contained.
+    valid_resp = client.post("/sessions/final_demo/furniture/validate", json={
+        "furniture_id": "bed_queen",
+        "center_x": 4.0,
+        "center_z": 3.0,
+        "angle_deg": 0.0,
+    })
+    assert valid_resp.status_code == 200
+    assert valid_resp.json()["valid"] is True
+
+    # If double-scaling had occurred, the boundary would be [0, 16] x [0, 12],
+    # so a point at x=10.0, z=3.0 would incorrectly pass.
+    # With no double-scaling, x=10.0 is outside [0, 8] and must FAIL validation.
+    outside_resp = client.post("/sessions/final_demo/furniture/validate", json={
+        "furniture_id": "bed_queen",
+        "center_x": 10.0,
+        "center_z": 3.0,
+        "angle_deg": 0.0,
+    })
+    assert outside_resp.status_code == 200
+    outside_data = outside_resp.json()
+    assert outside_data["valid"] is False
+    assert "out of room boundary" in outside_data["reason"].lower()
+

@@ -3,19 +3,19 @@
 ## 1. Executive Summary
 VisionForge is a **purely classical computer vision** monocular 3D room reconstruction and digital twin platform.
 
-* **Repository State:** Branch `feature/phase4-furniture-scale`, HEAD commit `a896146` (`fix(mobile,clearance): physical device runtime hardening, boundary contact clearance, and scale calibration validation`).
+* **Repository State:** Branch `feature/phase4-furniture-scale`.
 * **Testing Status:**
-  * **Backend (Python):** 206 passed, 1 skipped, 0 failed (100% green in 24.22s).
-  * **Frontend (Vitest):** 12 test files, 70 passed (100% green in 589ms).
-  * **Build:** Frontend builds cleanly (`proxychains npm run build`).
-  * **Mobile Sync:** Capacitor 8 synced (`proxychains npx cap sync android`).
-  * **Android Build:** `BUILD SUCCESSFUL in 2s` (`assembleDebug`).
+  * **Backend (Python):** 207 passed, 1 skipped, 0 failed (100% green in 22.85s).
+  * **Frontend (Vitest):** 12 test files, 70 passed (100% green in 599ms).
+  * **Build:** Frontend builds cleanly (`proxychains npm run build` in 1.83s).
+  * **Mobile Sync:** Capacitor 8 synced (`proxychains npx cap sync android` in 0.05s).
+  * **Android Build:** `BUILD SUCCESSFUL in 15s` (`assembleDebug`).
   * **Physical Device:** Installed and verified on physical Redmi Note 13 5G (`rwkbgmhir4c6vch6`) with real-time UI interactions, 3D viewing, furniture placement, scale calibration, and live tracking navigation. Screenshots preserved in `docs/results/phase4_mobile_verification/`.
 * **Milestone Reached:** 
   * Phase 1: Ingestion & Offline SfM (Complete & Verified).
   * Phase 2: Batch Geometry, Scene Graph, Digital Twin, Three.js Web Viewer (Complete & Verified).
-  * Phase 3: Real-Time Live Monocular Tracking over WebSocket & Android Streaming (Complete & Verified on physical hardware).
-  * Phase 4: Metric Scale Calibration, 2D Floor Clearance Engine, 3D Interactive Furniture Placement & "Can It Fit?" Auto-Pack Analyzer (Complete & Verified on physical device).
+  * Phase 3: Real-Time Live Monocular Tracking over WebSocket & Android Streaming (Complete & Verified on physical hardware; up-axis fusion prioritized camera gravity; seeded deterministic RANSAC).
+  * Phase 4: Metric Scale Calibration, 2D Floor Clearance Engine, 3D Interactive Furniture Placement & "Can It Fit?" Auto-Pack Analyzer (Complete & Verified on physical device; single-coordinate scale contract enforced with double-scaling eliminated; scene graph synchronized; missing geometry UI warnings added; production LAN IP hardcoding removed).
 
 ---
 

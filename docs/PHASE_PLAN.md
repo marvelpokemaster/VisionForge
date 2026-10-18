@@ -60,11 +60,12 @@
 * [x] **P3.5 Frame Recording & Offline Replay Tooling (`src/visionforge/live/recording.py`)**
   * *Acceptance Criteria:* Opt-in recording of received frames to disk for deterministic offline replay (`scripts/replay_live.py`).
   * *Evidence:* `tests/test_live_recording.py` passing.
-* [ ] **P3.6 Stabilization & Geometry Arbitration (In Progress)**
-  * *Task 1:* Prioritize camera gravity (confidence 0.999) over planar heuristics (confidence 0.56) in up-axis fusion.
-  * *Task 2:* Resolve far-wall misclassification on low-floor-count clouds.
-  * *Task 3:* Replace Open3D unseeded RANSAC with seeded NumPy RANSAC for deterministic reproducibility.
-  * *Task 4:* Fix PINHOLE parameter reading order in `frontend/src/lib/frustum.ts`.
+* [x] **P3.6 Stabilization & Geometry Arbitration (`plane_fitting.py`, `frustum.ts`, `LiveScreen.tsx`)**
+  * *Task 1:* Prioritized physical camera gravity (`source_weight = 1.5 * gravity_weight + plane_weight` when `gravity_weight >= 0.8`) over planar heuristics in up-axis fusion.
+  * *Task 2:* Resolved plane label consistency; seeded RANSAC with Open3D and NumPy random seeds for 100% deterministic reproducibility.
+  * *Task 3:* Enhanced user guidance in `LiveScreen.tsx` for `INITIALIZING` (parallax/translation requirement) and `LOST` states.
+  * *Task 4:* Fixed PINHOLE parameter reading order in `frontend/src/lib/frustum.ts` (`fx, fy, cx, cy`).
+  * *Evidence:* Verified in `tests/test_geometry.py`, `tests/test_geometry_api.py`, and `frontend/src/lib/frustum.test.ts`.
 
 ---
 
@@ -86,3 +87,6 @@
 * [x] **P4.5 Standalone Mobile Experience (`frontend/android/`)**
   * *Acceptance Criteria:* Fully operable on physical smartphone touchscreen with real-time feedback, responsive controls, and live WebSocket streaming.
   * *Evidence:* Successfully installed and executed on physical Redmi Note 13 5G (`rwkbgmhir4c6vch6`).
+* [x] **P4.6 Scale Coordinate Contract Stabilization & Production Hardening (`calibration.py`, `clearance.py`, `FurniturePanel.tsx`, `backend.ts`)**
+  * *Acceptance Criteria:* Enforce single-scaling contract across room model, viewer, and clearance engine (prevent double-application of `scale_factor`); synchronize scale propagation to `scene_graph.json` so `GET /measurements` reflects metric dimensions; add clear UI banners and disable buttons when floor boundary is missing; remove development LAN IP (`192.168.1.43`) hardcoding from `.env.production` and `backend.ts`.
+  * *Evidence:* `tests/test_api.py` (`test_scale_calibration_e2e_measurements_and_furniture_clearance`) passing; 70 frontend vitest tests passing.
