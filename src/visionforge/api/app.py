@@ -99,6 +99,16 @@ def _extract_user_id(request: Request, backend: Any) -> Optional[str]:
         except Exception as e:
             raise HTTPException(status_code=401, detail=f"Authentication failed: {e}")
 
+    # If connected to FirebaseBackend, verify Firebase ID token
+    if backend.__class__.__name__ == "FirebaseBackend":
+        try:
+            from firebase_admin import auth as fb_auth
+            decoded = fb_auth.verify_id_token(token)
+            return decoded.get("uid")
+        except Exception as e:
+            if os.environ.get("VISIONFORGE_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"):
+                raise HTTPException(status_code=401, detail=f"Firebase authentication failed: {e}")
+
     # Fallback / dev: parse unverified sub if JWT format (only when secret is not configured)
     try:
         import base64

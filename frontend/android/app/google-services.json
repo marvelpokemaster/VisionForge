@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "548013373123",
+    "project_id": "visionforge-spatial",
+    "storage_bucket": "visionforge-spatial.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:548013373123:android:a596d91126aada67091476",
+        "android_client_info": {
+          "package_name": "com.visionforge.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCa_toSsQ5A1tkjgVhZsOVxx66zdCHvF68"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

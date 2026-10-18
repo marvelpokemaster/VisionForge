@@ -8,11 +8,15 @@ from visionforge.persistence.local_backend import LocalJsonBackend
 
 
 def get_backend(outputs_root: "Path | None" = None) -> PersistenceBackend:
-    """Selects the persistence backend from SUPABASE_URL / SUPABASE_KEY.
-    supabase-py is only imported when both env vars are present -- the
-    offline pipeline and LocalJsonBackend-only tests never trigger it.
-    `outputs_root` lets callers (the API, tests) point LocalJsonBackend at a
-    specific directory instead of the "outputs/" default."""
+    """Selects the persistence backend from FIREBASE_PROJECT_ID, SUPABASE_URL / SUPABASE_KEY,
+    or falls back to LocalJsonBackend. External client libraries are imported lazily."""
+    persistence_mode = os.environ.get("VISIONFORGE_PERSISTENCE", "").lower()
+
+    if persistence_mode == "firebase" or os.environ.get("FIREBASE_PROJECT_ID"):
+        from visionforge.persistence.firebase_backend import FirebaseBackend
+        print("Persistence: FIREBASE_PROJECT_ID set, using FirebaseBackend.")
+        return FirebaseBackend()
+
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
     if url and key:
@@ -20,7 +24,7 @@ def get_backend(outputs_root: "Path | None" = None) -> PersistenceBackend:
         print("Persistence: SUPABASE_URL/SUPABASE_KEY set, using SupabaseBackend.")
         return SupabaseBackend(url, key)
 
-    print("Persistence: SUPABASE_URL/SUPABASE_KEY not set, using LocalJsonBackend (outputs/).")
+    print("Persistence: using LocalJsonBackend (outputs/).")
     return LocalJsonBackend(outputs_root=outputs_root or Path("outputs"))
 
 
