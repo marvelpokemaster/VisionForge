@@ -4,9 +4,7 @@ import {
   apiBase,
   probeBackend,
   readApiBaseOverride,
-  readAuthToken,
   setApiBaseOverride,
-  setAuthToken,
   subscribeApiBase,
   validateApiBase,
   type ProbeResult
@@ -28,8 +26,6 @@ interface Props {
 export default function BackendField({ disabled = false }: Props) {
   const effective = useApiBase();
   const [draft, setDraft] = useState<string>(() => readApiBaseOverride() ?? "");
-  const [tokenDraft, setTokenDraft] = useState<string>(() => readAuthToken() ?? "");
-  const [showToken, setShowToken] = useState<boolean>(() => Boolean(readAuthToken()));
   const [problem, setProblem] = useState<string | null>(null);
   const [probe, setProbe] = useState<ProbeResult | "checking" | null>(null);
   const [probeSeq, setProbeSeq] = useState(0);
@@ -59,17 +55,6 @@ export default function BackendField({ disabled = false }: Props) {
     setProblem(null);
     setApiBaseOverride(null);
     setDraft("");
-  }, []);
-
-  const applyToken = useCallback(() => {
-    setAuthToken(tokenDraft);
-    setProbeSeq((n) => n + 1);
-  }, [tokenDraft]);
-
-  const clearToken = useCallback(() => {
-    setAuthToken(null);
-    setTokenDraft("");
-    setProbeSeq((n) => n + 1);
   }, []);
 
   const overridden = readApiBaseOverride() !== null;
@@ -119,38 +104,6 @@ export default function BackendField({ disabled = false }: Props) {
         Retry
       </button>
       {problem && <span className="error">{problem}</span>}
-
-      <div className="auth-field" style={{ marginTop: "6px" }}>
-        <button
-          type="button"
-          className="small"
-          onClick={() => setShowToken(!showToken)}
-          style={{ fontSize: "0.8em", opacity: 0.85 }}
-        >
-          {showToken ? "Hide Auth Token" : (readAuthToken() ? "Auth Token (configured)" : "+ Auth Token")}
-        </button>
-        {showToken && (
-          <div style={{ marginTop: "4px", display: "flex", gap: "4px" }}>
-            <input
-              type="password"
-              value={tokenDraft}
-              placeholder="Bearer JWT token"
-              disabled={disabled}
-              onChange={(e) => setTokenDraft(e.target.value)}
-              onBlur={applyToken}
-              style={{ flex: 1, fontSize: "0.85em" }}
-            />
-            <button type="button" className="small" onClick={applyToken} disabled={disabled}>
-              Save
-            </button>
-            {tokenDraft && (
-              <button type="button" className="small" onClick={clearToken} disabled={disabled}>
-                Clear
-              </button>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

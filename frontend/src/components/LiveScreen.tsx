@@ -2,9 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Viewer3D, { type Toggles } from "./Viewer3D";
 import { navigate } from "../lib/route";
 import { registerBackGuard } from "../lib/backButton";
-import BackendField from "./BackendField";
 import AuthPanel from "./AuthPanel";
-import IntrinsicsField, { loadStoredIntrinsics } from "./IntrinsicsField";
+import { loadStoredIntrinsics } from "./IntrinsicsField";
 import { configureMessage, type ParsedCameras } from "../live/intrinsics";
 import { RECORD_KEY, readStored, writeStored } from "../lib/stored";
 import { CameraSource, FileSource, type FrameSource } from "../live/source";
@@ -62,7 +61,7 @@ export default function LiveScreen() {
   // "Record frames": the server keeps every received JPEG for offline replay (default off, persisted)
   const [record, setRecord] = useState<boolean>(() => readStored(RECORD_KEY) === "1");
   // calibration from `visionforge calibrate` (persisted); null -> the phone-default stopgap
-  const [cameras, setCameras] = useState<ParsedCameras | null>(loadStoredIntrinsics);
+  const [cameras] = useState<ParsedCameras | null>(loadStoredIntrinsics);
 
   useEffect(() => {
     void getCurrentUser().then((u) => {
@@ -278,7 +277,6 @@ export default function LiveScreen() {
           <div style={{ marginBottom: "12px" }}>
             <AuthPanel onAuthChange={(u) => setIsAuthenticated(Boolean(u) || Boolean(readAuthToken()))} />
           </div>
-          <BackendField disabled={running || stopping} />
           <div className="settings-grid">
             <label className="field-group">
               <span className="field-label">Session ID</span>
@@ -317,7 +315,6 @@ export default function LiveScreen() {
               </div>
             )}
           </div>
-          <IntrinsicsField value={cameras} onChange={setCameras} disabled={running || stopping} />
         </div>
       )}
 

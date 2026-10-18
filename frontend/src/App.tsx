@@ -9,7 +9,7 @@ import MeasurementsPanel from "./components/MeasurementsPanel";
 import QueryBox from "./components/QueryBox";
 import ProvenanceFooter from "./components/ProvenanceFooter";
 import LiveScreen from "./components/LiveScreen";
-import BackendField, { useApiBase } from "./components/BackendField";
+import { useApiBase } from "./components/BackendField";
 import FurniturePanel from "./components/FurniturePanel";
 import AuthPanel from "./components/AuthPanel";
 import type { PlacedFurniture } from "./types/furniture";
@@ -34,7 +34,6 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
   const [placedFurniture, setPlacedFurniture] = useState<PlacedFurniture[]>([]);
   const [reloadTrigger, setReloadTrigger] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
 
   const reloadSession = useCallback(() => {
     setReloadTrigger((n) => n + 1);
@@ -136,14 +135,6 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
           >
             {sidebarOpen ? "✕ Close" : "📁 Spaces"}
           </button>
-          <button
-            type="button"
-            className="header-icon-btn settings-btn"
-            onClick={() => setShowSettings(!showSettings)}
-            title="Configure backend & options"
-          >
-            ⚙
-          </button>
         </div>
       </header>
 
@@ -159,13 +150,6 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
           </div>
 
           <AuthPanel onAuthChange={reloadSession} />
-
-          {showSettings && (
-            <div className="sidebar-settings-card">
-              <h4>Server Configuration</h4>
-              <BackendField />
-            </div>
-          )}
 
           <SessionList sessions={sessions} selectedId={selectedSessionId} onSelect={selectSession} />
 
