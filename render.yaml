@@ -10,7 +10,13 @@ services:
         value: 8000
       - key: PYTHONUNBUFFERED
         value: "1"
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_KEY
+      - key: VISIONFORGE_PERSISTENCE
+        value: "firebase"
+      - key: FIREBASE_PROJECT_ID
+        value: "visionforge-spatial"
+      - key: VISIONFORGE_REQUIRE_AUTH
+        value: "1"
+      - key: VISIONFORGE_ENV
+        value: "production"
+      - key: FIREBASE_SERVICE_ACCOUNT_KEY
         sync: false

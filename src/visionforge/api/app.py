@@ -76,11 +76,18 @@ class SaveFurnitureLayoutRequest(BaseModel):
 
 
 def _extract_user_id(request: Request, backend: Any) -> Optional[str]:
-    """Derives user ownership server-side from Supabase auth JWT.
-    Never trusts client-supplied user ID query params or bodies."""
+    """Derives user ownership server-side from verified auth tokens.
+    Never trusts client-supplied user ID query params or bodies.
+    In production and for FirebaseBackend, strictly enforces verified tokens and never falls back."""
     auth_header = request.headers.get("Authorization")
+    require_auth = os.environ.get("VISIONFORGE_REQUIRE_AUTH", "").lower() in ("1", "true", "yes")
+    is_prod = (
+        os.environ.get("VISIONFORGE_ENV", "").lower() == "production"
+        or os.environ.get("ENVIRONMENT", "").lower() == "production"
+    )
+
     if not auth_header:
-        if os.environ.get("VISIONFORGE_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"):
+        if require_auth or is_prod:
             raise HTTPException(status_code=401, detail="Authentication required")
         return None
 
@@ -89,6 +96,15 @@ def _extract_user_id(request: Request, backend: Any) -> Optional[str]:
         raise HTTPException(status_code=401, detail="Invalid Authorization header format. Expected 'Bearer <token>'")
     token = parts[1]
 
+    # If connected to FirebaseBackend, strictly verify Firebase ID token
+    if backend.__class__.__name__ == "FirebaseBackend":
+        try:
+            from firebase_admin import auth as fb_auth
+            decoded = fb_auth.verify_id_token(token)
+            return decoded.get("uid")
+        except Exception as e:
+            raise HTTPException(status_code=401, detail=f"Firebase authentication failed: {e}")
+
     # If connected to real SupabaseBackend with a client, verify token
     client = getattr(backend, "client", None)
     if client is not None and hasattr(client, "auth") and hasattr(client.auth, "get_user"):
@@ -96,30 +112,33 @@ def _extract_user_id(request: Request, backend: Any) -> Optional[str]:
             user_resp = client.auth.get_user(token)
             if user_resp and hasattr(user_resp, "user") and user_resp.user:
                 return str(user_resp.user.id)
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=401, detail=f"Authentication failed: {e}")
 
-    # If connected to FirebaseBackend, verify Firebase ID token
-    if backend.__class__.__name__ == "FirebaseBackend":
-        try:
-            from firebase_admin import auth as fb_auth
-            decoded = fb_auth.verify_id_token(token)
-            return decoded.get("uid")
-        except Exception as e:
-            if os.environ.get("VISIONFORGE_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"):
-                raise HTTPException(status_code=401, detail=f"Firebase authentication failed: {e}")
+    # In production, reject tokens that cannot be verified by a real cloud backend
+    if is_prod:
+        raise HTTPException(status_code=401, detail="Authentication token could not be verified by production backend")
 
-    # Fallback / dev: parse unverified sub if JWT format (only when secret is not configured)
+    # Local development / unit tests with LocalJsonBackend:
     try:
         import base64
-        payload_b64 = token.split(".")[1]
+        parts_jwt = token.split(".")
+        if len(parts_jwt) != 3:
+            raise ValueError("Invalid JWT format")
+        payload_b64 = parts_jwt[1]
         padded = payload_b64 + "=" * (-len(payload_b64) % 4)
         claims = json.loads(base64.urlsafe_b64decode(padded))
-        return claims.get("sub")
+        sub = claims.get("sub")
+        if not sub and require_auth:
+            raise HTTPException(status_code=401, detail="Invalid token claims: sub missing")
+        return sub
+    except HTTPException:
+        raise
     except Exception:
-        if os.environ.get("VISIONFORGE_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"):
-            raise HTTPException(status_code=401, detail="Invalid authentication token")
-        return None
+        raise HTTPException(status_code=401, detail="Invalid token format")
 
 
 ValidatePlacementRequest.model_rebuild()
@@ -136,10 +155,11 @@ def _validate_id_component(value: str, what: str) -> None:
         raise HTTPException(status_code=400, detail=f"Invalid {what}")
 
 
-def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
+def create_app(outputs_root: Optional[Path] = None, backend: Optional[Any] = None) -> FastAPI:
     root = Path(outputs_root) if outputs_root is not None else Path(os.environ.get("VISIONFORGE_OUTPUTS_ROOT", "outputs"))
     store = SessionStore(root)
-    backend = get_backend(outputs_root=root)
+    if backend is None:
+        backend = get_backend(outputs_root=root)
 
     app = FastAPI(title="VisionForge API", description="Read-only digital twin API, backed by outputs/<run>/ (see Task G for Supabase persistence).")
     app.state.store = store
@@ -197,6 +217,17 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
             }
         }
 
+    def _enforce_session_ownership(session_id: str, request: Request) -> Optional[str]:
+        user_id = _extract_user_id(request, backend)
+        owner_id = backend.get_session_owner(session_id)
+        if owner_id is not None:
+            if user_id is None or user_id != owner_id:
+                raise HTTPException(status_code=403, detail="Forbidden: You do not own this session")
+        elif os.environ.get("VISIONFORGE_REQUIRE_AUTH", "").lower() in ("1", "true", "yes"):
+            if user_id is None:
+                raise HTTPException(status_code=401, detail="Authentication required")
+        return user_id
+
     @app.get("/health")
     def health_check():
         active_live = len(getattr(app.state, "live_sessions", {}))
@@ -210,8 +241,13 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
     @app.get("/sessions")
     def list_sessions(request: Request):
         user_id = _extract_user_id(request, backend)
-        merged = {sid: _session_summary(sid, run_dir) for sid, run_dir in store.list_sessions().items()}
-        # When the backend is Supabase, this also surfaces sessions with no
+        merged = {}
+        for sid, run_dir in store.list_sessions().items():
+            owner = backend.get_session_owner(sid)
+            if owner is not None and owner != user_id:
+                continue
+            merged[sid] = _session_summary(sid, run_dir)
+        # When the backend is Supabase/Firebase, this also surfaces sessions with no
         # local run directory at all -- for LocalJsonBackend it's typically
         # a subset of what's already discovered above, deduplicated by id.
         for record in backend.list_sessions(user_id=user_id):
@@ -221,7 +257,8 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
         return list(merged.values())
 
     @app.post("/sessions", status_code=201)
-    def create_session(req: CreateSessionRequest):
+    def create_session(req: CreateSessionRequest, request: Request):
+        _extract_user_id(request, backend)
         try:
             sid = store.register(Path(req.run_dir), req.id)
         except FileNotFoundError as e:
@@ -229,27 +266,32 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
         return _session_summary(sid, store.get(sid))
 
     @app.get("/sessions/{session_id}")
-    def get_session(session_id: str):
+    def get_session(session_id: str, request: Request):
+        _enforce_session_ownership(session_id, request)
         run_dir = _run_dir_or_404(session_id)
         return _session_summary(session_id, run_dir)
 
     @app.get("/sessions/{session_id}/room_model")
-    def get_room_model(session_id: str):
+    def get_room_model(session_id: str, request: Request):
+        _enforce_session_ownership(session_id, request)
         run_dir = _run_dir_or_404(session_id)
         return _json_or_404(run_dir / "p2" / "room_model.json", "room_model.json")
 
     @app.get("/sessions/{session_id}/scene_graph")
-    def get_scene_graph(session_id: str):
+    def get_scene_graph(session_id: str, request: Request):
+        _enforce_session_ownership(session_id, request)
         run_dir = _run_dir_or_404(session_id)
         return _json_or_404(run_dir / "scene_graph.json", "scene_graph.json")
 
     @app.get("/sessions/{session_id}/cameras")
-    def get_cameras(session_id: str):
+    def get_cameras(session_id: str, request: Request):
+        _enforce_session_ownership(session_id, request)
         run_dir = _run_dir_or_404(session_id)
         return _json_or_404(run_dir / "p1" / "reconstruction" / "cameras.json", "cameras.json")
 
     @app.get("/sessions/{session_id}/twin")
-    def get_twin(session_id: str):
+    def get_twin(session_id: str, request: Request):
+        _enforce_session_ownership(session_id, request)
         run_dir = store.get(session_id)
         if run_dir is not None and run_dir.exists():
             return DigitalTwin.build_from_run_dir(run_dir).to_dict()
@@ -260,6 +302,7 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
 
     @app.post("/sessions/{session_id}/persist")
     def persist_session(session_id: str, request: Request):
+        _enforce_session_ownership(session_id, request)
         run_dir = _run_dir_or_404(session_id)
         user_id = _extract_user_id(request, backend)
         result = persist_run(backend, session_id, run_dir, user_id=user_id)
@@ -272,12 +315,14 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
         return result
 
     @app.get("/sessions/{session_id}/measurements")
-    def get_measurements(session_id: str):
+    def get_measurements(session_id: str, request: Request):
+        _enforce_session_ownership(session_id, request)
         sqe = _query_engine_for(session_id)
         return sqe.get_room_dimensions()
 
     @app.post("/sessions/{session_id}/query")
-    def run_query(session_id: str, req: QueryRequest):
+    def run_query(session_id: str, req: QueryRequest, request: Request):
+        _enforce_session_ownership(session_id, request)
         sqe = _query_engine_for(session_id)
 
         if req.question is not None:
@@ -299,7 +344,8 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=f"Invalid params for '{req.method}': {e}")
 
     @app.get("/sessions/{session_id}/cloud")
-    def get_cloud(session_id: str):
+    def get_cloud(session_id: str, request: Request):
+        _enforce_session_ownership(session_id, request)
         run_dir = store.get(session_id)
         if run_dir is not None:
             ply_path = run_dir / "p1" / "reconstruction" / "sparse_cloud.ply"
@@ -313,7 +359,8 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
         raise HTTPException(status_code=404, detail="sparse_cloud.ply not available for this session")
 
     @app.get("/sessions/{session_id}/planes/{plane_id}")
-    def get_plane_ply(session_id: str, plane_id: str):
+    def get_plane_ply(session_id: str, plane_id: str, request: Request):
+        _enforce_session_ownership(session_id, request)
         _validate_id_component(plane_id, "plane id")
         run_dir = store.get(session_id)
         if run_dir is not None:
@@ -329,6 +376,7 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
 
     @app.post("/sessions/{session_id}/furniture/layout")
     def save_furniture_layout(session_id: str, req: SaveFurnitureLayoutRequest, request: Request):
+        _enforce_session_ownership(session_id, request)
         user_id = _extract_user_id(request, backend)
         backend.save_furniture_layout(session_id, req.model_dump(), user_id=user_id)
         run_dir = store.get(session_id)
@@ -337,7 +385,8 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
         return {"status": "saved", "session_id": session_id}
 
     @app.get("/sessions/{session_id}/furniture/layout")
-    def get_furniture_layout(session_id: str):
+    def get_furniture_layout(session_id: str, request: Request):
+        _enforce_session_ownership(session_id, request)
         layout = backend.get_furniture_layout(session_id)
         if layout is not None:
             return layout
@@ -360,11 +409,13 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
         return FURNITURE_CATALOG
 
     @app.get("/sessions/{session_id}/furniture/catalog")
-    def get_session_furniture_catalog(session_id: str):
+    def get_session_furniture_catalog(session_id: str, request: Request):
+        _enforce_session_ownership(session_id, request)
         return FURNITURE_CATALOG
 
     @app.post("/sessions/{session_id}/furniture/validate")
-    def validate_furniture_placement(session_id: str, req: ValidatePlacementRequest):
+    def validate_furniture_placement(session_id: str, req: ValidatePlacementRequest, request: Request):
+        _enforce_session_ownership(session_id, request)
         run_dir = _run_dir_or_404(session_id)
         room_model_path = run_dir / "p2" / "room_model.json"
         if not room_model_path.exists():
@@ -382,7 +433,8 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
         )
 
     @app.post("/sessions/{session_id}/furniture/auto_pack")
-    def auto_pack_furniture(session_id: str, req: AutoPackRequest):
+    def auto_pack_furniture(session_id: str, req: AutoPackRequest, request: Request):
+        _enforce_session_ownership(session_id, request)
         run_dir = _run_dir_or_404(session_id)
         room_model_path = run_dir / "p2" / "room_model.json"
         if not room_model_path.exists():
@@ -398,7 +450,8 @@ def create_app(outputs_root: Optional[Path] = None) -> FastAPI:
         )
 
     @app.post("/sessions/{session_id}/scale/calibrate")
-    def calibrate_scale(session_id: str, req: CalibrateScaleRequest):
+    def calibrate_scale(session_id: str, req: CalibrateScaleRequest, request: Request):
+        _enforce_session_ownership(session_id, request)
         run_dir = _run_dir_or_404(session_id)
         try:
             scaled_model = apply_scale_to_session(

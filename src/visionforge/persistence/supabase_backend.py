@@ -207,3 +207,9 @@ class SupabaseBackend(PersistenceBackend):
         record = self._latest_versioned("twins", session_id)
         return record["payload"] if record else None
 
+    def get_session_owner(self, session_id: str) -> Optional[str]:
+        result = self.client.table("sessions").select("user_id").eq("id", session_id).limit(1).execute()
+        if result.data:
+            return result.data[0].get("user_id")
+        return None
+

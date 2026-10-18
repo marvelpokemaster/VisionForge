@@ -2,12 +2,10 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /sessions/{sessionId} {
-      allow read, write: if true;
-
-      match /{subcollection}/{docId} {
-        allow read, write: if true;
-      }
+    // Default-deny: all client data access is mediated through the authenticated
+    // FastAPI backend (which uses Firebase Admin SDK and validates user ID tokens).
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

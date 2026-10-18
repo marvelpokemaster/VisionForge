@@ -227,3 +227,16 @@ class LocalJsonBackend(PersistenceBackend):
         record = self._latest_versioned(session_id, "twins")
         return record["payload"] if record else None
 
+    def get_session_owner(self, session_id: str) -> Optional[str]:
+        session_file = self._session_dir(session_id) / "session.json"
+        if not session_file.exists():
+            session_file = self.outputs_root / session_id / "session.json"
+        if session_file.exists():
+            try:
+                with open(session_file, "r") as f:
+                    rec = json.load(f)
+                return rec.get("user_id")
+            except Exception:
+                pass
+        return None
+

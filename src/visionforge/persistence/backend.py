@@ -95,3 +95,8 @@ class PersistenceBackend(ABC):
         """The latest persisted twin payload for a session, or None."""
         ...
 
+    @abstractmethod
+    def get_session_owner(self, session_id: str) -> Optional[str]:
+        """Returns the user_id owner of the session, or None if unowned/not found."""
+        ...
+

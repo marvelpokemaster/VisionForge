@@ -24,35 +24,38 @@ class FirebaseBackend(PersistenceBackend):
         self._db = firestore_client
         self._bucket = storage_bucket_client
 
+    def _init_firebase_app(self) -> None:
+        import firebase_admin
+        from firebase_admin import credentials
+
+        if not firebase_admin._apps:
+            cred = None
+            sa_key = os.environ.get("FIREBASE_SERVICE_ACCOUNT_KEY")
+            if sa_key:
+                import json
+                if sa_key.strip().startswith("{"):
+                    cred = credentials.Certificate(json.loads(sa_key))
+                elif os.path.exists(sa_key):
+                    cred = credentials.Certificate(sa_key)
+            options = {
+                "projectId": self.project_id,
+                "storageBucket": self.storage_bucket_name,
+            }
+            firebase_admin.initialize_app(credential=cred, options=options)
+
     @property
     def db(self) -> Any:
         if self._db is None:
-            import firebase_admin
             from firebase_admin import firestore
-
-            if not firebase_admin._apps:
-                firebase_admin.initialize_app(
-                    options={
-                        "projectId": self.project_id,
-                        "storageBucket": self.storage_bucket_name,
-                    }
-                )
+            self._init_firebase_app()
             self._db = firestore.client()
         return self._db
 
     @property
     def bucket(self) -> Any:
         if self._bucket is None:
-            import firebase_admin
             from firebase_admin import storage
-
-            if not firebase_admin._apps:
-                firebase_admin.initialize_app(
-                    options={
-                        "projectId": self.project_id,
-                        "storageBucket": self.storage_bucket_name,
-                    }
-                )
+            self._init_firebase_app()
             self._bucket = storage.bucket(self.storage_bucket_name)
         return self._bucket
 
@@ -266,4 +269,11 @@ class FirebaseBackend(PersistenceBackend):
         docs = col_ref.order_by("version", direction="DESCENDING").limit(1).get()
         for d in docs:
             return (d.to_dict() or {}).get("payload")
+        return None
+
+    def get_session_owner(self, session_id: str) -> Optional[str]:
+        doc_ref = self.db.collection("sessions").document(session_id)
+        snapshot = doc_ref.get()
+        if snapshot.exists:
+            return (snapshot.to_dict() or {}).get("user_id")
         return None
