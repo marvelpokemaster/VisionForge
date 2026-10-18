@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { listSessions, getTwin, getMeasurements, type RoomMeasurementsResponse } from "./lib/api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { listSessions, getTwin, getMeasurements, type RoomMeasurementsResponse, ApiError } from "./lib/api";
 import { hasGeometry, loadSessionView } from "./lib/sessionLoad";
 import type { Session, Twin } from "./types/twin";
 import Viewer3D, { type Toggles } from "./components/Viewer3D";
@@ -34,9 +34,9 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
   const [placedFurniture, setPlacedFurniture] = useState<PlacedFurniture[]>([]);
   const [reloadTrigger, setReloadTrigger] = useState(0);
 
-  const reloadSession = () => {
+  const reloadSession = useCallback(() => {
     setReloadTrigger((n) => n + 1);
-  };
+  }, []);
 
   const [toggles, setToggles] = useState<Toggles>({
     pointCloud: true,
@@ -56,7 +56,14 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
         setSessions(s);
         setSelectedSessionId((current) => routeSessionId ?? current ?? (s.length > 0 ? s[0].id : null));
       })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 401) {
+          setSessions([]);
+          setSelectedSessionId(null);
+          return;
+        }
+        setError(err instanceof Error ? err.message : String(err));
+      });
   }, [routeSessionId, backend, reloadTrigger]);
 
   function selectSession(id: string) {

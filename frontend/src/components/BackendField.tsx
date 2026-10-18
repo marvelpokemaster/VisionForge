@@ -110,7 +110,9 @@ export default function BackendField({ disabled = false }: Props) {
         {probe === null || probe === "checking"
           ? "checking…"
           : probe.ok
-            ? `ok (${probe.sessions} sessions, ${probe.ms} ms)`
+            ? probe.authRequired
+              ? `connected (sign in to view sessions, ${probe.ms} ms)`
+              : `ok (${probe.sessions} sessions, ${probe.ms} ms)`
             : `failed: ${probe.error}`}
       </span>
       <button type="button" className="small" onClick={() => setProbeSeq((n) => n + 1)} disabled={probe === "checking"}>

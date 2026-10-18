@@ -86,9 +86,11 @@ export function subscribeApiBase(onChange: () => void): () => void {
   };
 }
 
-export type ProbeResult = { ok: true; sessions: number; ms: number } | { ok: false; error: string; ms: number };
+export type ProbeResult =
+  | { ok: true; sessions: number; ms: number; authRequired?: boolean }
+  | { ok: false; error: string; ms: number };
 
-/** GET <base>/sessions with a timeout: "can this device reach the PC at all?" */
+/** GET <base>/sessions with a timeout: "can this device reach the backend at all?" */
 export async function probeBackend(
   base: string,
   fetchImpl: typeof fetch = fetch,
@@ -105,6 +107,10 @@ export async function probeBackend(
       ...(ctl ? { signal: ctl.signal } : {}),
       headers,
     });
+    // In production with VISIONFORGE_REQUIRE_AUTH=1, 401 proves the server is reached and live
+    if (res.status === 401) {
+      return { ok: true, sessions: 0, ms: now() - t0, authRequired: true };
+    }
     if (!res.ok) return { ok: false, error: `GET /sessions -> ${res.status} ${res.statusText}`.trim(), ms: now() - t0 };
     const body: unknown = await res.json();
     const sessions = Array.isArray(body) ? body.length : 0;

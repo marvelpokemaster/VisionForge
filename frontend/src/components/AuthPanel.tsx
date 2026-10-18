@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { getCurrentUser, signInWithEmail, signOut, signUpWithEmail, getSupabaseClient } from "../lib/supabase";
 
@@ -16,10 +16,14 @@ export default function AuthPanel({ onAuthChange }: Props) {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
+  const onAuthChangeRef = useRef(onAuthChange);
+  useEffect(() => {
+    onAuthChangeRef.current = onAuthChange;
+  }, [onAuthChange]);
+
   useEffect(() => {
     void getCurrentUser().then((u) => {
       setUser(u);
-      if (onAuthChange) onAuthChange(u);
     });
 
     const c = getSupabaseClient();
@@ -27,13 +31,13 @@ export default function AuthPanel({ onAuthChange }: Props) {
     const { data: listener } = c.auth.onAuthStateChange((_event, session) => {
       const u = session?.user ?? null;
       setUser(u);
-      if (onAuthChange) onAuthChange(u);
+      onAuthChangeRef.current?.(u);
     });
 
     return () => {
       listener.subscription.unsubscribe();
     };
-  }, [onAuthChange]);
+  }, []);
 
   async function handleAuth(e: React.FormEvent) {
     e.preventDefault();
