@@ -11,6 +11,7 @@ import ProvenanceFooter from "./components/ProvenanceFooter";
 import LiveScreen from "./components/LiveScreen";
 import BackendField, { useApiBase } from "./components/BackendField";
 import FurniturePanel from "./components/FurniturePanel";
+import AuthPanel from "./components/AuthPanel";
 import type { PlacedFurniture } from "./types/furniture";
 import { useRoute } from "./lib/useRoute";
 import { navigate } from "./lib/route";
@@ -56,7 +57,7 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
         setSelectedSessionId((current) => routeSessionId ?? current ?? (s.length > 0 ? s[0].id : null));
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, [routeSessionId, backend]);
+  }, [routeSessionId, backend, reloadTrigger]);
 
   function selectSession(id: string) {
     setSelectedSessionId(id);
@@ -105,6 +106,7 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
         <button className="live-link" onClick={() => navigate({ kind: "live" })}>
           ● Live tracking
         </button>
+        <AuthPanel onAuthChange={reloadSession} />
         <BackendField />
         <SessionList sessions={sessions} selectedId={selectedSessionId} onSelect={selectSession} />
         {measurements && <MeasurementsPanel measurements={measurements} />}

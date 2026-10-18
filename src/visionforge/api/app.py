@@ -18,7 +18,7 @@ from visionforge.persistence import get_backend, persist_run, persist_artifacts
 
 # Vite's default dev server origin. Override with a comma-separated list via
 # VISIONFORGE_CORS_ORIGINS for a different frontend dev port/host.
-DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,https://localhost,http://localhost,capacitor://localhost"
+DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,https://localhost,http://localhost,capacitor://localhost,https://visionforge-spatial.web.app,https://visionforge-spatial.firebaseapp.com"
 
 # Query methods the /query endpoint is allowed to dispatch to -- an explicit
 # allowlist, not getattr on an arbitrary string, so a request can never reach

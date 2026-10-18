@@ -4,7 +4,7 @@
 // An absolute http(s) base becomes ws(s) on the same host/path; a relative
 // base (the "/api" that Vite proxies in dev) becomes ws(s)://<current
 // host>/api, matching the page's own scheme.
-import { apiBase } from "../lib/backend";
+import { apiBase, readAuthToken } from "../lib/backend";
 
 export interface LocationLike {
   protocol: string; // "http:" | "https:"
@@ -21,8 +21,9 @@ export function liveSocketOrigin(apiBase: string, loc: LocationLike): string {
   return `${scheme}://${loc.host}${path}`;
 }
 
-export function liveSocketUrl(apiBase: string, sessionId: string, loc: LocationLike): string {
-  return `${liveSocketOrigin(apiBase, loc)}/live/${encodeURIComponent(sessionId)}`;
+export function liveSocketUrl(apiBase: string, sessionId: string, loc: LocationLike, token?: string | null): string {
+  const url = `${liveSocketOrigin(apiBase, loc)}/live/${encodeURIComponent(sessionId)}`;
+  return token ? `${url}?token=${encodeURIComponent(token)}` : url;
 }
 
 /** The active segment's current map, served by GET /live/{id}/cloud. */
@@ -33,9 +34,10 @@ export function liveCloudUrl(apiBase: string, sessionId: string): string {
 /** The two above, against the backend currently in effect (default or the
  * runtime override) -- what the Live screen actually connects to. */
 export function currentLiveSocketUrl(sessionId: string, loc: LocationLike): string {
-  return liveSocketUrl(apiBase(), sessionId, loc);
+  return liveSocketUrl(apiBase(), sessionId, loc, readAuthToken());
 }
 
 export function currentLiveCloudUrl(sessionId: string): string {
   return liveCloudUrl(apiBase(), sessionId);
 }
+

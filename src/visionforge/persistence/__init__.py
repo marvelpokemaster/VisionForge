@@ -11,14 +11,29 @@ def get_backend(outputs_root: "Path | None" = None) -> PersistenceBackend:
     """Selects the persistence backend from FIREBASE_PROJECT_ID, SUPABASE_URL / SUPABASE_KEY,
     or falls back to LocalJsonBackend. External client libraries are imported lazily."""
     persistence_mode = os.environ.get("VISIONFORGE_PERSISTENCE", "").lower()
+    is_prod = (
+        os.environ.get("VISIONFORGE_ENV", "").lower() == "production"
+        or os.environ.get("ENVIRONMENT", "").lower() == "production"
+    )
 
-    if persistence_mode == "supabase" or (persistence_mode != "firebase" and os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY")):
+    if persistence_mode == "supabase" or is_prod:
         url = os.environ.get("SUPABASE_URL")
         key = os.environ.get("SUPABASE_KEY")
-        if url and key:
-            from visionforge.persistence.supabase_backend import SupabaseBackend
-            print("Persistence: SUPABASE_URL/SUPABASE_KEY set, using SupabaseBackend.")
-            return SupabaseBackend(url, key)
+        if not url or not key:
+            raise RuntimeError(
+                f"Production or Supabase persistence mode active, but SUPABASE_URL or SUPABASE_KEY is missing. "
+                f"Configured: SUPABASE_URL={'yes' if url else 'no'}, SUPABASE_KEY={'yes' if key else 'no'}."
+            )
+        from visionforge.persistence.supabase_backend import SupabaseBackend
+        print("Persistence: SUPABASE_URL/SUPABASE_KEY set, using SupabaseBackend.")
+        return SupabaseBackend(url, key)
+
+    if persistence_mode != "firebase" and os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_KEY"):
+        url = os.environ.get("SUPABASE_URL")
+        key = os.environ.get("SUPABASE_KEY")
+        from visionforge.persistence.supabase_backend import SupabaseBackend
+        print("Persistence: SUPABASE_URL/SUPABASE_KEY set, using SupabaseBackend.")
+        return SupabaseBackend(url, key)
 
     if persistence_mode == "firebase" or os.environ.get("FIREBASE_PROJECT_ID"):
         from visionforge.persistence.firebase_backend import FirebaseBackend

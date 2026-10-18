@@ -20,3 +20,5 @@ services:
         value: "1"
       - key: VISIONFORGE_ENV
         value: "production"
+      - key: VISIONFORGE_CORS_ORIGINS
+        value: "https://visionforge-spatial.web.app,https://visionforge-spatial.firebaseapp.com,capacitor://localhost,http://localhost,http://localhost:5173"

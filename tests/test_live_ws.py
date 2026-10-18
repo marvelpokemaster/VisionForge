@@ -248,3 +248,38 @@ def test_reinitialisation_after_lost_starts_a_new_incremental_room_model():
     assert all(u["provenance"]["segment"] == 0 for i, u in updates if i <= 14)
     assert all(u["provenance"]["segment"] == 1 for i, u in updates if i >= 25)
     assert all(st["twin_update"] is None for st in statuses[15:25])
+
+
+def test_live_ws_production_requires_auth_and_rejects_missing_token(client, monkeypatch):
+    monkeypatch.setenv("VISIONFORGE_REQUIRE_AUTH", "1")
+    monkeypatch.setenv("VISIONFORGE_ENV", "production")
+
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect("/live/sess-unauth") as ws:
+            ws.receive_json()
+    assert exc.value.code == 4401
+
+
+def test_live_ws_production_accepts_valid_token_in_query_param(client, monkeypatch):
+    from unittest.mock import MagicMock
+
+    monkeypatch.setenv("VISIONFORGE_REQUIRE_AUTH", "1")
+    monkeypatch.setenv("VISIONFORGE_ENV", "production")
+
+    mock_client = MagicMock()
+    mock_user_resp = MagicMock()
+    mock_user = MagicMock()
+    mock_user.id = "valid-ws-user"
+    mock_user_resp.user = mock_user
+    mock_client.auth.get_user.return_value = mock_user_resp
+
+    mock_backend = MagicMock()
+    mock_backend.client = mock_client
+    client.app.state.backend = mock_backend
+
+    with client.websocket_connect("/live/sess-auth?token=valid-token") as ws:
+        # Connection established successfully
+        ws.send_json({"cmd": "finish"})
+        reply = ws.receive_json()
+        assert reply.get("finished") is True
+

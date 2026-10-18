@@ -363,9 +363,28 @@ def test_get_backend_selects_supabase_when_env_vars_set(monkeypatch):
 
 
 def test_get_backend_missing_one_env_var_falls_back_to_local(monkeypatch):
+    monkeypatch.delenv("VISIONFORGE_PERSISTENCE", raising=False)
+    monkeypatch.delenv("VISIONFORGE_ENV", raising=False)
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.delenv("SUPABASE_KEY", raising=False)
     assert isinstance(get_backend(), LocalJsonBackend)
+
+
+def test_get_backend_production_raises_if_supabase_missing(monkeypatch):
+    monkeypatch.setenv("VISIONFORGE_ENV", "production")
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="Production or Supabase persistence mode active"):
+        get_backend()
+
+
+def test_get_backend_supabase_mode_raises_if_key_missing(monkeypatch):
+    monkeypatch.setenv("VISIONFORGE_PERSISTENCE", "supabase")
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.delenv("SUPABASE_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="Production or Supabase persistence mode active"):
+        get_backend()
+
 
 
 # ---------------------------------------------------------------------------

@@ -5,19 +5,21 @@ VisionForge is a **purely classical computer vision** monocular 3D room reconstr
 
 * **Repository State:** Branch `feature/phase4-furniture-scale`.
 * **Testing Status:**
-  * **Backend (Python):** 227 passed, 1 skipped, 0 failed (100% green in 19.31s).
-  * **Frontend (Vitest):** 12 test files, 73 passed (100% green in 515ms).
-  * **Build:** Frontend builds cleanly (`npm run build` in 1.70s).
+  * **Backend (Python):** 231 passed, 3 skipped, 0 failed (100% green in 23.60s).
+  * **Frontend (Vitest):** 12 test files, 73 passed (100% green in 578ms).
+  * **Build:** Frontend builds cleanly (`npm run build` in 2.42s).
   * **Mobile Sync:** Capacitor 8 synced (`npx cap sync android` in 0.05s).
-  * **Android Build:** `BUILD SUCCESSFUL in 1s` (`assembleDebug`, APK at `frontend/android/app/build/outputs/apk/debug/app-debug.apk`).
-  * **Physical Device:** Installed and verified on physical Redmi Note 13 5G (`rwkbgmhir4c6vch6`) with real-time UI interactions, 3D viewing, furniture placement, scale calibration, and live tracking navigation. Screenshot verified.
+  * **Android Build:** `BUILD SUCCESSFUL in 2s` (`assembleDebug`, APK at `frontend/android/app/build/outputs/apk/debug/app-debug.apk`, 4.9 MB).
+  * **Physical Device:** Installed and verified on physical Redmi Note 13 5G (`rwkbgmhir4c6vch6`) with real-time UI interactions, 3D viewing, furniture placement, scale calibration, and live tracking navigation. Screenshot verified. Device currently detached from USB (`adb devices` empty).
   * **Cloud Deployment & Persistence (Supabase):**
     * **Supabase Project:** Dedicated project `btpxwlquhjwjqoypqskm` (Status: `ACTIVE_HEALTHY`, Region: `ap-northeast-1`).
     * **Database Migrations:** Applied `0001_init.sql` and `0002_user_ownership_and_artifacts.sql` covering 9 tables (`sessions`, `room_models`, `scene_graphs`, `twins`, `measurements`, `experiment_results`, `processing_status`, `furniture_layouts`, `artifacts`) with Row Level Security (RLS) enabled on all tables.
     * **Storage Bucket:** Private bucket `visionforge-artifacts` (500 MB limit, RLS enabled for authenticated and service-role access) for binary PLY point clouds, models, and scan artifacts.
-    * **Backend Persistence:** `SupabaseBackend` verified against live database and storage (session upsert, room model/twin versioning, furniture layout, artifact upload/download).
-    * **Server-Side Auth & Ownership:** Supabase JWT verification via `client.auth.get_user(token)` with strict server-side ownership enforcement (403 Forbidden on cross-user access). Token management field integrated in mobile/web `BackendField`.
-    * **Docker Backend Deployment:** `render.yaml` configured to deploy Docker service with `VISIONFORGE_PERSISTENCE=supabase` and `SUPABASE_URL=https://btpxwlquhjwjqoypqskm.supabase.co`.
+    * **Backend Persistence:** `SupabaseBackend` verified against live database and storage (session upsert, room model/twin versioning, furniture layout, artifact upload/download). Silent fallback in production is strictly blocked with `RuntimeError`.
+    * **Client-Side Auth & Session:** Real Supabase Auth client integrated in web & Android app (`@supabase/supabase-js`, [`frontend/src/lib/supabase.ts`](file:///home/marvelpokemaster/Documents/codes/projects/VisionForge/frontend/src/lib/supabase.ts)), with user sign-in/sign-up/sign-out UI (`AuthPanel.tsx`), session persistence, and automatic token synchronization across REST requests and live WebSocket streaming.
+    * **Server-Side Auth & Ownership:** Supabase JWT verification via `client.auth.get_user(token)` with strict server-side ownership enforcement (403 Forbidden on cross-user access, 4401 on unauthenticated WebSockets in production).
+    * **Hosted Web Application:** Deployed to Firebase Hosting at `https://visionforge-spatial.web.app` (HTTP/2 200).
+    * **Docker Backend Deployment:** `render.yaml` configured with `VISIONFORGE_PERSISTENCE=supabase`, `SUPABASE_URL=https://btpxwlquhjwjqoypqskm.supabase.co`, `VISIONFORGE_REQUIRE_AUTH=1`, `VISIONFORGE_ENV=production`, and `VISIONFORGE_CORS_ORIGINS`.
 * **Milestone Reached:** 
   * Phase 1: Ingestion & Offline SfM (Complete & Verified).
   * Phase 2: Batch Geometry, Scene Graph, Digital Twin, Three.js Web Viewer (Complete & Verified).

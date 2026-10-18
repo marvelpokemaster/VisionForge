@@ -115,16 +115,41 @@ def test_cross_user_session_access_denied_403(tmp_path):
     listed_ids_alice = [s["id"] for s in resp_alice_list.json()]
     assert "sess_alice" in listed_ids_alice
 
+    # 7. Bob cannot access cloud PLY or plane PLYs
+    resp_bob_cloud = client.get("/sessions/sess_alice/cloud", headers={"Authorization": f"Bearer {bob_token}"})
+    assert resp_bob_cloud.status_code == 403
+
+    resp_bob_plane = client.get("/sessions/sess_alice/planes/plane_0", headers={"Authorization": f"Bearer {bob_token}"})
+    assert resp_bob_plane.status_code == 403
+
+    # 8. Bob cannot run queries or scale calibration on Alice's session
+    resp_bob_query = client.post(
+        "/sessions/sess_alice/query",
+        headers={"Authorization": f"Bearer {bob_token}"},
+        json={"question": "What is the floor area?"},
+    )
+    assert resp_bob_query.status_code == 403
+
+    resp_bob_calibrate = client.post(
+        "/sessions/sess_alice/scale/calibrate",
+        headers={"Authorization": f"Bearer {bob_token}"},
+        json={"reference_type": "room_width", "known_distance_meters": 3.0},
+    )
+    assert resp_bob_calibrate.status_code == 403
+
+
 
 def test_production_rejects_unverified_jwt(tmp_path, monkeypatch):
     monkeypatch.setenv("VISIONFORGE_ENV", "production")
-    app = create_app(outputs_root=tmp_path)
+    backend = LocalJsonBackend(outputs_root=tmp_path)
+    app = create_app(outputs_root=tmp_path, backend=backend)
     client = TestClient(app)
 
     fake_jwt = _make_fake_jwt({"sub": "any-user"})
     resp = client.get("/sessions", headers={"Authorization": f"Bearer {fake_jwt}"})
     assert resp.status_code == 401
     assert "could not be verified by production backend" in resp.json()["detail"]
+
 
 
 def test_supabase_backend_rejects_invalid_token(tmp_path):
