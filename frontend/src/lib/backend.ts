@@ -11,7 +11,7 @@
 // localStorage access is wrapped in try/catch throughout: it can be absent
 // (node tests), throw (private mode / blocked site data) or be read-only.
 
-export const DEFAULT_API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? "/api";
+export const DEFAULT_API_BASE: string = import.meta.env.VITE_API_BASE_URL ?? "https://visionforge-spatial-api.onrender.com";
 export const STORAGE_KEY = "visionforge.apiBase";
 
 export interface StorageLike {
@@ -49,7 +49,13 @@ export function validateApiBase(raw: string): string | null {
 export function readApiBaseOverride(storage: StorageLike | null = defaultStorage()): string | null {
   if (!storage) return null;
   try {
-    return normalizeApiBase(storage.getItem(STORAGE_KEY));
+    const raw = normalizeApiBase(storage.getItem(STORAGE_KEY));
+    if (!raw) return null;
+    // On production builds, ignore obsolete localhost/emulator hostnames
+    if (import.meta.env.PROD && /^https?:\/\/(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(\/|$)/i.test(raw)) {
+      return null;
+    }
+    return raw;
   } catch {
     return null;
   }

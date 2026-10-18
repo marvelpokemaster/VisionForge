@@ -49,6 +49,15 @@ describe("apiBase", () => {
     expect(apiBase(s, "http://10.0.2.2:8000")).toBe("http://192.168.1.37:8000");
   });
 
+  it("ignores localhost/emulator dev overrides in production mode", () => {
+    const local = memoryStorage({ [STORAGE_KEY]: "http://localhost:8000" });
+    const emu = memoryStorage({ [STORAGE_KEY]: "http://10.0.2.2:8000" });
+    const loop = memoryStorage({ [STORAGE_KEY]: "http://127.0.0.1:8000" });
+    expect(readApiBaseOverride(local)).toBeDefined();
+    expect(readApiBaseOverride(emu)).toBeDefined();
+    expect(readApiBaseOverride(loop)).toBeDefined();
+  });
+
   it("persists, clears and notifies", () => {
     const s = memoryStorage();
     let notified = 0;

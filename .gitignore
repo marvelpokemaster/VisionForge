@@ -29,6 +29,10 @@ frontend/vite.config.d.ts
 
 # Android Studio project files (machine-specific)
 frontend/android/.idea/
+*.keystore
+*.jks
+*.apk
+*.sha256
 
 # Firebase local cache
 .firebase/
