@@ -213,3 +213,11 @@ class SupabaseBackend(PersistenceBackend):
             return result.data[0].get("user_id")
         return None
 
+    def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        result = self.client.table("sessions").select("*").eq("id", session_id).limit(1).execute()
+        return result.data[0] if result.data else None
+
+    def get_room_model(self, session_id: str) -> Optional[Dict[str, Any]]:
+        record = self._latest_versioned("room_models", session_id)
+        return record["payload"] if record else None
+

@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: visionforge-backend
+    name: visionforge-spatial-api
     runtime: docker
     dockerfilePath: Dockerfile
     plan: free

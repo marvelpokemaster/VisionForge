@@ -100,3 +100,14 @@ class PersistenceBackend(ABC):
         """Returns the user_id owner of the session, or None if unowned/not found."""
         ...
 
+    def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves a single session record by id, or None."""
+        for s in self.list_sessions():
+            if s.get("id") == session_id:
+                return s
+        return None
+
+    def get_room_model(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """The latest persisted room_model payload for a session, or None."""
+        return None
+

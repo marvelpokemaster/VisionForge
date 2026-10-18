@@ -268,14 +268,26 @@ def create_app(outputs_root: Optional[Path] = None, backend: Optional[Any] = Non
     @app.get("/sessions/{session_id}")
     def get_session(session_id: str, request: Request):
         _enforce_session_ownership(session_id, request)
-        run_dir = _run_dir_or_404(session_id)
-        return _session_summary(session_id, run_dir)
+        run_dir = store.get(session_id)
+        if run_dir is not None and run_dir.exists():
+            return _session_summary(session_id, run_dir)
+        record = backend.get_session(session_id)
+        if record is not None:
+            return _persisted_only_summary(record)
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
     @app.get("/sessions/{session_id}/room_model")
     def get_room_model(session_id: str, request: Request):
         _enforce_session_ownership(session_id, request)
-        run_dir = _run_dir_or_404(session_id)
-        return _json_or_404(run_dir / "p2" / "room_model.json", "room_model.json")
+        run_dir = store.get(session_id)
+        if run_dir is not None and run_dir.exists():
+            for p in [run_dir / "p2" / "room_model.json", run_dir / "room_model.json"]:
+                if p.exists():
+                    return _json_or_404(p, "room_model.json")
+        persisted = backend.get_room_model(session_id)
+        if persisted is not None:
+            return persisted
+        raise HTTPException(status_code=404, detail=f"room_model.json not available for session '{session_id}'")
 
     @app.get("/sessions/{session_id}/scene_graph")
     def get_scene_graph(session_id: str, request: Request):
@@ -416,11 +428,20 @@ def create_app(outputs_root: Optional[Path] = None, backend: Optional[Any] = Non
     @app.post("/sessions/{session_id}/furniture/validate")
     def validate_furniture_placement(session_id: str, req: ValidatePlacementRequest, request: Request):
         _enforce_session_ownership(session_id, request)
-        run_dir = _run_dir_or_404(session_id)
-        room_model_path = run_dir / "p2" / "room_model.json"
-        if not room_model_path.exists():
-            room_model_path = run_dir / "room_model.json"
-        room_model = _json_or_404(room_model_path, "room_model.json")
+        room_model = None
+        run_dir = store.get(session_id)
+        if run_dir is not None and run_dir.exists():
+            for p in [run_dir / "p2" / "room_model.json", run_dir / "room_model.json"]:
+                if p.exists():
+                    try:
+                        room_model = json.loads(p.read_text())
+                        break
+                    except Exception:
+                        pass
+        if room_model is None:
+            room_model = backend.get_room_model(session_id)
+        if room_model is None:
+            raise HTTPException(status_code=404, detail=f"room_model.json not available for session '{session_id}'")
         engine = FloorClearanceEngine(room_model)
         return engine.validate_placement(
             furniture_id=req.furniture_id,
@@ -435,11 +456,20 @@ def create_app(outputs_root: Optional[Path] = None, backend: Optional[Any] = Non
     @app.post("/sessions/{session_id}/furniture/auto_pack")
     def auto_pack_furniture(session_id: str, req: AutoPackRequest, request: Request):
         _enforce_session_ownership(session_id, request)
-        run_dir = _run_dir_or_404(session_id)
-        room_model_path = run_dir / "p2" / "room_model.json"
-        if not room_model_path.exists():
-            room_model_path = run_dir / "room_model.json"
-        room_model = _json_or_404(room_model_path, "room_model.json")
+        room_model = None
+        run_dir = store.get(session_id)
+        if run_dir is not None and run_dir.exists():
+            for p in [run_dir / "p2" / "room_model.json", run_dir / "room_model.json"]:
+                if p.exists():
+                    try:
+                        room_model = json.loads(p.read_text())
+                        break
+                    except Exception:
+                        pass
+        if room_model is None:
+            room_model = backend.get_room_model(session_id)
+        if room_model is None:
+            raise HTTPException(status_code=404, detail=f"room_model.json not available for session '{session_id}'")
         engine = FloorClearanceEngine(room_model)
         return engine.auto_pack(
             furniture_id=req.furniture_id,
