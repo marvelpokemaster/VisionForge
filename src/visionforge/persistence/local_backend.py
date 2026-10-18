@@ -240,3 +240,19 @@ class LocalJsonBackend(PersistenceBackend):
                 pass
         return None
 
+    def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        session_file = self._session_dir(session_id) / "session.json"
+        if not session_file.exists():
+            session_file = self.outputs_root / session_id / "persistence" / "session.json"
+        if session_file.exists():
+            try:
+                with open(session_file, "r") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return None
+
+    def get_room_model(self, session_id: str) -> Optional[Dict[str, Any]]:
+        record = self._latest_versioned(session_id, "room_models")
+        return record["payload"] if record else None
+
