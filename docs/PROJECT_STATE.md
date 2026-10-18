@@ -25,6 +25,15 @@ VisionForge is a **purely classical computer vision** monocular 3D room reconstr
   * Phase 2: Batch Geometry, Scene Graph, Digital Twin, Three.js Web Viewer (Complete & Verified).
   * Phase 3: Real-Time Live Monocular Tracking over WebSocket & Android Streaming (Complete & Verified on physical hardware; up-axis fusion prioritized camera gravity; seeded deterministic RANSAC).
   * Phase 4: Metric Scale Calibration, 2D Floor Clearance Engine, 3D Interactive Furniture Placement, "Can It Fit?" Auto-Pack Analyzer, and Production Cloud Release (Complete & Verified).
+* **Render Cloud Deployment (Production Backend):**
+  * **Service:** `visionforge-spatial-api` (`srv-dbacnnjbc2fs73ata05g`)
+  * **Public HTTPS URL:** `https://visionforge-spatial-api.onrender.com`
+  * **Public WSS URL:** `wss://visionforge-spatial-api.onrender.com`
+  * **Health Endpoint:** `GET /health` returning `200 OK`, `backend: "SupabaseBackend"`.
+  * **Render MCP:** Configured and operational via `mcp_config.json` with official binary.
+  * **Live E2E Verification:** All 6 live release gates (health check, JWT auth rejection, cross-user isolation, artifact persistence via Supabase Storage, furniture validation/auto-pack API, live WebSocket streaming with token) verified and green against the live Render service.
+  * **Hosted Web Application:** Deployed to Firebase Hosting at `https://visionforge-spatial.web.app` (HTTP/2 200).
+  * **Physical Android App:** Built debug APK (5.1 MB) installed and launched on connected Redmi Note 13 5G (`rwkbgmhir4c6vch6`), configured directly to `https://visionforge-spatial-api.onrender.com`.
 
 ---
 
