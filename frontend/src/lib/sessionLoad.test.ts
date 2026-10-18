@@ -31,6 +31,7 @@ describe("noGeometryNotice", () => {
     expect(noGeometryNotice(twinWith({}))).toBe("no geometry: this session has no room model");
     expect(noGeometryNotice(twinWith({ live_tracking: "success" }, 3))).toBeNull();
     expect(hasGeometry(twinWith({}, 1))).toBe(true);
+    expect(hasGeometry({ provenance: { stage_status: {} } } as unknown as Twin)).toBe(false);
   });
 });
 

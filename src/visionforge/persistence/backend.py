@@ -16,7 +16,10 @@ class PersistenceBackend(ABC):
         session_id: str,
         input_type: str,
         video_name: Optional[str],
-        status: str
+        status: str,
+        user_id: Optional[str] = None,
+        scale_factor: float = 1.0,
+        metric_available: bool = False,
     ) -> None:
         ...
 
@@ -50,11 +53,61 @@ class PersistenceBackend(ABC):
         ...
 
     @abstractmethod
-    def list_sessions(self) -> List[Dict[str, Any]]:
-        """Every session this backend knows about, each at least {id, ...}."""
+    def save_furniture_layout(self, session_id: str, layout: Dict[str, Any], user_id: Optional[str] = None) -> None:
+        """Saves or updates the furniture layout for a session."""
+        ...
+
+    @abstractmethod
+    def get_furniture_layout(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves the latest furniture layout for a session, or None."""
+        ...
+
+    @abstractmethod
+    def save_artifact(
+        self,
+        session_id: str,
+        artifact_type: str,
+        content: bytes,
+        filename: Optional[str] = None,
+        user_id: Optional[str] = None,
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        """Saves or uploads an artifact (e.g. sparse_cloud.ply). Returns its storage path."""
+        ...
+
+    @abstractmethod
+    def get_artifact(self, session_id: str, artifact_type: str) -> Optional[bytes]:
+        """Retrieves raw artifact content by type, or None if not found."""
+        ...
+
+    @abstractmethod
+    def list_artifacts(self, session_id: str) -> List[Dict[str, Any]]:
+        """Lists metadata for all artifacts recorded for this session."""
+        ...
+
+    @abstractmethod
+    def list_sessions(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Every session this backend knows about, optionally filtered by user_id."""
         ...
 
     @abstractmethod
     def get_twin(self, session_id: str) -> Optional[Dict[str, Any]]:
         """The latest persisted twin payload for a session, or None."""
         ...
+
+    @abstractmethod
+    def get_session_owner(self, session_id: str) -> Optional[str]:
+        """Returns the user_id owner of the session, or None if unowned/not found."""
+        ...
+
+    def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves a single session record by id, or None."""
+        for s in self.list_sessions():
+            if s.get("id") == session_id:
+                return s
+        return None
+
+    def get_room_model(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """The latest persisted room_model payload for a session, or None."""
+        return None
+

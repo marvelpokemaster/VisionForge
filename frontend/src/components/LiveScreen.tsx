@@ -203,7 +203,7 @@ export default function LiveScreen() {
 
   const twin = summary.lastTwin;
   const reason = noGeometryReason(twin);
-  const viewerTwin = twin && twin.room_model && twin.room_model.planes.length > 0 ? twin : null;
+  const viewerTwin = twin?.room_model?.planes && twin.room_model.planes.length > 0 ? twin : null;
 
   return (
     <div className="live-screen">
@@ -247,8 +247,8 @@ export default function LiveScreen() {
 
       <div className={`live-state live-state-${summary.state.toLowerCase()}`} role="status" aria-live="polite">
         {summary.state === "IDLE" ? "IDLE" : summary.state}
-        {summary.state === "LOST" && <span className="live-state-sub">pose unknown — move the camera back to known area</span>}
-        {summary.state === "INITIALIZING" && <span className="live-state-sub">translate the camera sideways (parallax needed)</span>}
+        {summary.state === "LOST" && <span className="live-state-sub">tracking lost — move slowly back to previous location or pan slowly across room</span>}
+        {summary.state === "INITIALIZING" && <span className="live-state-sub">do not rotate in place — walk slowly sideways 1–2m pointing at wall (parallax needed)</span>}
       </div>
 
       {error && <p className="error">{error}</p>}

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { listSessions, getTwin, getMeasurements, type RoomMeasurementsResponse } from "./lib/api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { listSessions, getTwin, getMeasurements, type RoomMeasurementsResponse, ApiError } from "./lib/api";
 import { hasGeometry, loadSessionView } from "./lib/sessionLoad";
 import type { Session, Twin } from "./types/twin";
 import Viewer3D, { type Toggles } from "./components/Viewer3D";
@@ -10,6 +10,9 @@ import QueryBox from "./components/QueryBox";
 import ProvenanceFooter from "./components/ProvenanceFooter";
 import LiveScreen from "./components/LiveScreen";
 import BackendField, { useApiBase } from "./components/BackendField";
+import FurniturePanel from "./components/FurniturePanel";
+import AuthPanel from "./components/AuthPanel";
+import type { PlacedFurniture } from "./types/furniture";
 import { useRoute } from "./lib/useRoute";
 import { navigate } from "./lib/route";
 
@@ -28,12 +31,19 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedPlaneId, setSelectedPlaneId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [placedFurniture, setPlacedFurniture] = useState<PlacedFurniture[]>([]);
+  const [reloadTrigger, setReloadTrigger] = useState(0);
+
+  const reloadSession = useCallback(() => {
+    setReloadTrigger((n) => n + 1);
+  }, []);
 
   const [toggles, setToggles] = useState<Toggles>({
     pointCloud: true,
     geometry: true,
     labels: true,
-    cameras: true
+    cameras: true,
+    furniture: true,
   });
 
   // (Re)load the session list on mount, whenever the route names a session
@@ -46,8 +56,15 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
         setSessions(s);
         setSelectedSessionId((current) => routeSessionId ?? current ?? (s.length > 0 ? s[0].id : null));
       })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-  }, [routeSessionId, backend]);
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 401) {
+          setSessions([]);
+          setSelectedSessionId(null);
+          return;
+        }
+        setError(err instanceof Error ? err.message : String(err));
+      });
+  }, [routeSessionId, backend, reloadTrigger]);
 
   function selectSession(id: string) {
     setSelectedSessionId(id);
@@ -77,10 +94,10 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
     return () => {
       stale = true;
     };
-  }, [selectedSessionId, backend]);
+  }, [selectedSessionId, backend, reloadTrigger]);
 
   const selectedPlane = useMemo(() => {
-    if (!twin?.room_model || !selectedPlaneId) return null;
+    if (!twin?.room_model?.planes || !selectedPlaneId) return null;
     return twin.room_model.planes.find((p) => p.id === selectedPlaneId) ?? null;
   }, [twin, selectedPlaneId]);
 
@@ -96,9 +113,19 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
         <button className="live-link" onClick={() => navigate({ kind: "live" })}>
           ● Live tracking
         </button>
+        <AuthPanel onAuthChange={reloadSession} />
         <BackendField />
         <SessionList sessions={sessions} selectedId={selectedSessionId} onSelect={selectSession} />
         {measurements && <MeasurementsPanel measurements={measurements} />}
+        {selectedSessionId && twin && hasGeometry(twin) && (
+          <FurniturePanel
+            sessionId={selectedSessionId}
+            twin={twin}
+            placedFurniture={placedFurniture}
+            onPlacedFurnitureChange={setPlacedFurniture}
+            onSessionUpdated={reloadSession}
+          />
+        )}
         {selectedSessionId && <QueryBox sessionId={selectedSessionId} />}
         {twin && <InspectPanel plane={selectedPlane} sceneGraph={twin.scene_graph} />}
       </aside>
@@ -121,6 +148,9 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
           <label>
             <input type="checkbox" checked={toggles.cameras} onChange={() => toggle("cameras")} /> Cameras
           </label>
+          <label>
+            <input type="checkbox" checked={toggles.furniture ?? true} onChange={() => toggle("furniture" as any)} /> Furniture
+          </label>
         </div>
 
         {error && <p className="error">{error}</p>}
@@ -135,6 +165,7 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
                 toggles={toggles}
                 selectedPlaneId={selectedPlaneId}
                 onSelectPlane={setSelectedPlaneId}
+                placedFurniture={placedFurniture}
               />
             </>
           ) : (

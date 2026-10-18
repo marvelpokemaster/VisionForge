@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Default-deny: all artifact retrieval/upload is mediated through the
+    // authenticated FastAPI backend, enforcing server-side ownership.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

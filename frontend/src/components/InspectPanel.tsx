@@ -34,12 +34,18 @@ export default function InspectPanel({ plane, sceneGraph }: Props) {
           <tr>
             <td>Extent</td>
             <td>
-              {plane.extent.width.toFixed(3)} &times; {plane.extent.height.toFixed(3)}
+              {plane.extent ? (
+                <>
+                  {plane.extent.width.toFixed(3)} &times; {plane.extent.height.toFixed(3)}
+                </>
+              ) : (
+                "—"
+              )}
             </td>
           </tr>
           <tr>
             <td>Area</td>
-            <td>{plane.area.toFixed(3)}</td>
+            <td>{plane.area !== undefined && plane.area !== null ? plane.area.toFixed(3) : "—"}</td>
           </tr>
           <tr>
             <td>Normal</td>

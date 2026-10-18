@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from typing import Any, Dict
 
@@ -36,6 +37,7 @@ from visionforge.live.session import LiveSession
 
 CLOSE_ALREADY_ACTIVE = 4409
 CLOSE_INVALID_ID = 4400
+CLOSE_UNAUTHORIZED = 4401
 
 router = APIRouter()
 
@@ -58,6 +60,35 @@ async def live_socket(ws: WebSocket, session_id: str):
     app = ws.app
     sessions: Dict[str, Dict[str, Any]] = app.state.live_sessions
     await ws.accept()
+
+    require_auth = os.environ.get("VISIONFORGE_REQUIRE_AUTH", "").lower() in ("1", "true", "yes")
+    is_prod = (
+        os.environ.get("VISIONFORGE_ENV", "").lower() == "production"
+        or os.environ.get("ENVIRONMENT", "").lower() == "production"
+    )
+    if require_auth or is_prod:
+        token = ws.query_params.get("token")
+        auth_header = ws.headers.get("Authorization")
+        if not token and auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split()[1]
+
+        backend = getattr(app.state, "backend", None)
+        client = getattr(backend, "client", None)
+        authenticated = False
+        if token and client is not None and hasattr(client, "auth") and hasattr(client.auth, "get_user"):
+            try:
+                user_resp = client.auth.get_user(token)
+                if user_resp and hasattr(user_resp, "user") and user_resp.user:
+                    authenticated = True
+            except Exception:
+                pass
+        elif token and not is_prod:
+            authenticated = True
+
+        if not authenticated:
+            await ws.close(code=CLOSE_UNAUTHORIZED, reason="unauthorized")
+            return
+
     if not _valid_session_id(session_id):
         await ws.close(code=CLOSE_INVALID_ID, reason="invalid session id")
         return

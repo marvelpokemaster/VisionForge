@@ -42,7 +42,7 @@ export function validateApiBase(raw: string): string | null {
   const v = normalizeApiBase(raw);
   if (v === null) return null;
   if (/^https?:\/\/[^/\s]+/i.test(v) || v.startsWith("/")) return null;
-  return `"${v}" is not an http(s) URL; expected e.g. http://192.168.1.37:8000`;
+  return `"${v}" is not an http(s) URL; expected e.g. http://<server-ip>:8000`;
 }
 
 /** The stored override, or null when none / unreadable. */
@@ -86,20 +86,31 @@ export function subscribeApiBase(onChange: () => void): () => void {
   };
 }
 
-export type ProbeResult = { ok: true; sessions: number; ms: number } | { ok: false; error: string; ms: number };
+export type ProbeResult =
+  | { ok: true; sessions: number; ms: number; authRequired?: boolean }
+  | { ok: false; error: string; ms: number };
 
-/** GET <base>/sessions with a timeout: "can this device reach the PC at all?" */
+/** GET <base>/sessions with a timeout: "can this device reach the backend at all?" */
 export async function probeBackend(
   base: string,
   fetchImpl: typeof fetch = fetch,
   timeoutMs = 5000,
-  now: () => number = () => Date.now()
+  now: () => number = () => Date.now(),
+  storage: StorageLike | null = defaultStorage()
 ): Promise<ProbeResult> {
   const t0 = now();
   const ctl = typeof AbortController === "function" ? new AbortController() : null;
   const timer = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : null;
   try {
-    const res = await fetchImpl(`${base}/sessions`, ctl ? { signal: ctl.signal } : undefined);
+    const headers = { ...authHeaders(storage) };
+    const res = await fetchImpl(`${base}/sessions`, {
+      ...(ctl ? { signal: ctl.signal } : {}),
+      headers,
+    });
+    // In production with VISIONFORGE_REQUIRE_AUTH=1, 401 proves the server is reached and live
+    if (res.status === 401) {
+      return { ok: true, sessions: 0, ms: now() - t0, authRequired: true };
+    }
     if (!res.ok) return { ok: false, error: `GET /sessions -> ${res.status} ${res.statusText}`.trim(), ms: now() - t0 };
     const body: unknown = await res.json();
     const sessions = Array.isArray(body) ? body.length : 0;
@@ -116,3 +127,30 @@ export async function probeBackend(
     if (timer) clearTimeout(timer);
   }
 }
+
+export const AUTH_TOKEN_KEY = "visionforge.authToken";
+
+export function readAuthToken(storage: StorageLike | null = defaultStorage()): string | null {
+  if (!storage) return null;
+  try {
+    return normalizeApiBase(storage.getItem(AUTH_TOKEN_KEY));
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string | null, storage: StorageLike | null = defaultStorage()): void {
+  if (!storage) return;
+  try {
+    if (!token || token.trim() === "") storage.removeItem(AUTH_TOKEN_KEY);
+    else storage.setItem(AUTH_TOKEN_KEY, token.trim());
+  } catch {
+    // ignore
+  }
+}
+
+export function authHeaders(storage: StorageLike | null = defaultStorage()): Record<string, string> {
+  const token = readAuthToken(storage);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+

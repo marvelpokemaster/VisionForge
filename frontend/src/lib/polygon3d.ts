@@ -3,9 +3,9 @@ import type { Vec3 } from "../types/twin";
 
 /** Fan-triangulated filled geometry from an ordered (convex) polygon.
  * Materials should use THREE.DoubleSide so winding order never matters. */
-export function polygonToFilledGeometry(boundary: Vec3[]): THREE.BufferGeometry {
+export function polygonToFilledGeometry(boundary?: Vec3[] | null): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
-  if (boundary.length < 3) return geometry;
+  if (!boundary || boundary.length < 3) return geometry;
 
   const positions: number[] = [];
   for (const [x, y, z] of boundary) positions.push(x, y, z);
@@ -22,8 +22,9 @@ export function polygonToFilledGeometry(boundary: Vec3[]): THREE.BufferGeometry 
 }
 
 /** A closed line loop around the polygon's boundary, for the wireframe outline. */
-export function polygonToLineLoopGeometry(boundary: Vec3[]): THREE.BufferGeometry {
+export function polygonToLineLoopGeometry(boundary?: Vec3[] | null): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
+  if (!boundary || boundary.length === 0) return geometry;
   const positions: number[] = [];
   for (const [x, y, z] of boundary) positions.push(x, y, z);
   if (boundary.length > 0) {

@@ -10,6 +10,8 @@ import { makeTextSprite } from "../lib/labelSprite";
 import { buildFrustumGeometry } from "../lib/frustum";
 import { cloudUrl } from "../lib/api";
 
+import type { PlacedFurniture } from "../types/furniture";
+
 const PLANE_COLORS: Record<PlaneType, number> = {
   floor: 0x2ecc71, // green
   wall: 0xe74c3c, // red
@@ -24,6 +26,7 @@ export interface Toggles {
   geometry: boolean;
   labels: boolean;
   cameras: boolean;
+  furniture?: boolean;
 }
 
 interface Groups {
@@ -34,6 +37,7 @@ interface Groups {
   boundingPolygon: THREE.Group;
   cameras: THREE.Group;
   trajectory: THREE.Group;
+  furniture: THREE.Group;
 }
 
 interface Props {
@@ -45,9 +49,10 @@ interface Props {
   /** Where to fetch the point cloud PLY from; defaults to the session's
    * /cloud endpoint. The live screen points it at /live/{id}/cloud. */
   cloudUrl?: string;
+  placedFurniture?: PlacedFurniture[];
 }
 
-export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, onSelectPlane, cloudUrl: cloudUrlProp }: Props) {
+export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, onSelectPlane, cloudUrl: cloudUrlProp, placedFurniture }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -101,7 +106,8 @@ export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, on
       intersections: new THREE.Group(),
       boundingPolygon: new THREE.Group(),
       cameras: new THREE.Group(),
-      trajectory: new THREE.Group()
+      trajectory: new THREE.Group(),
+      furniture: new THREE.Group()
     };
     Object.values(groups).forEach((g) => scene.add(g));
     groupsRef.current = groups;
@@ -164,6 +170,7 @@ export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, on
     clearGroup(groups.boundingPolygon);
     clearGroup(groups.cameras);
     clearGroup(groups.trajectory);
+    clearGroup(groups.furniture);
     planeMeshesRef.current.clear();
     planeBaseColorRef.current.clear();
 
@@ -171,49 +178,59 @@ export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, on
     const coordSystem = roomModel?.coordinate_system ?? null;
 
     // Planes: filled translucent polygon + wireframe outline + label
-    if (roomModel) {
+    if (roomModel && Array.isArray(roomModel.planes)) {
       for (const plane of roomModel.planes) {
         const color = PLANE_COLORS[plane.type] ?? PLANE_COLORS.unknown;
         planeBaseColorRef.current.set(plane.id, color);
 
-        const filledGeom = polygonToFilledGeometry(plane.boundary_room);
-        const material = new THREE.MeshStandardMaterial({
-          color,
-          transparent: true,
-          opacity: 0.45,
-          side: THREE.DoubleSide,
-          depthWrite: false
-        });
-        const mesh = new THREE.Mesh(filledGeom, material);
-        mesh.userData.planeId = plane.id;
-        groups.planes.add(mesh);
-        planeMeshesRef.current.set(plane.id, mesh);
+        const boundary = plane.boundary_room ?? plane.boundary;
+        if (boundary && boundary.length >= 3) {
+          const filledGeom = polygonToFilledGeometry(boundary);
+          const material = new THREE.MeshStandardMaterial({
+            color,
+            transparent: true,
+            opacity: 0.45,
+            side: THREE.DoubleSide,
+            depthWrite: false
+          });
+          const mesh = new THREE.Mesh(filledGeom, material);
+          mesh.userData.planeId = plane.id;
+          groups.planes.add(mesh);
+          planeMeshesRef.current.set(plane.id, mesh);
 
-        const lineGeom = polygonToLineLoopGeometry(plane.boundary_room);
-        const line = new THREE.Line(lineGeom, new THREE.LineBasicMaterial({ color }));
-        groups.planes.add(line);
+          const lineGeom = polygonToLineLoopGeometry(boundary);
+          const line = new THREE.Line(lineGeom, new THREE.LineBasicMaterial({ color }));
+          groups.planes.add(line);
+        }
 
-        const label = makeTextSprite(`${plane.id} (${plane.type})`);
-        label.position.set(...plane.centroid_room);
-        groups.labels.add(label);
+        const centroid = plane.centroid_room ?? plane.centroid;
+        if (centroid && centroid.length >= 3) {
+          const label = makeTextSprite(`${plane.id} (${plane.type})`);
+          label.position.set(centroid[0], centroid[1], centroid[2]);
+          groups.labels.add(label);
+        }
       }
 
       // Plane-plane intersection segments
-      for (const inter of roomModel.intersections) {
-        const geom = new THREE.BufferGeometry().setFromPoints(
-          inter.segment_room.map(([x, y, z]) => new THREE.Vector3(x, y, z))
-        );
-        const line = new THREE.Line(geom, new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 }));
-        groups.intersections.add(line);
+      for (const inter of (roomModel.intersections ?? [])) {
+        const seg = inter.segment_room ?? inter.segment;
+        if (seg && Array.isArray(seg) && seg.length === 2 && seg[0] && seg[1]) {
+          const geom = new THREE.BufferGeometry().setFromPoints(
+            seg.map(([x, y, z]) => new THREE.Vector3(x, y, z))
+          );
+          const line = new THREE.Line(geom, new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 }));
+          groups.intersections.add(line);
+        }
       }
 
       // Room bounding polygon, placed at the floor's height (or y=0 if no floor)
       const floorPlane = roomModel.planes.find((p) => p.type === "floor");
-      const floorY = floorPlane ? floorPlane.centroid_room[1] : 0;
-      const polygonPoints = roomModel.room.bounding_polygon_room.map(
-        ([x, z]) => new THREE.Vector3(x, floorY, z)
-      );
-      if (polygonPoints.length > 0) {
+      const floorY = floorPlane?.centroid_room ? floorPlane.centroid_room[1] : (floorPlane?.centroid ? floorPlane.centroid[1] : 0);
+      const boundingPoly = roomModel.room?.bounding_polygon_room;
+      if (boundingPoly && Array.isArray(boundingPoly) && boundingPoly.length >= 3) {
+        const polygonPoints = boundingPoly.map(
+          ([x, z]) => new THREE.Vector3(x, floorY, z)
+        );
         polygonPoints.push(polygonPoints[0].clone());
         const geom = new THREE.BufferGeometry().setFromPoints(polygonPoints);
         const line = new THREE.Line(geom, new THREE.LineBasicMaterial({ color: 0xffff00 }));
@@ -234,7 +251,15 @@ export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, on
         if (!pose) continue;
 
         const axes = cameraAxesRoomFrame(pose.rotation_quat, coordSystem);
-        const geom = buildFrustumGeometry(props.position_room, axes.forward, axes.up, axes.right, props.camera_params);
+        const geom = buildFrustumGeometry(
+          props.position_room,
+          axes.forward,
+          axes.up,
+          axes.right,
+          props.camera_params,
+          0.4,
+          pose.camera_model
+        );
         const frustum = new THREE.LineSegments(geom, new THREE.LineBasicMaterial({ color: 0x00ffff }));
         groups.cameras.add(frustum);
       }
@@ -292,6 +317,53 @@ export default function Viewer3D({ sessionId, twin, toggles, selectedPlaneId, on
     applyHighlight(planeMeshesRef.current, planeBaseColorRef.current, selectedPlaneId);
   }, [selectedPlaneId]);
 
+  // ---- furniture 3D rendering updates ----
+  useEffect(() => {
+    const groups = groupsRef.current;
+    if (!groups) return;
+    clearGroup(groups.furniture);
+
+    if (!placedFurniture || placedFurniture.length === 0) return;
+
+    const floorPlane = twin?.room_model?.planes?.find((p) => p.type === "floor");
+    const floorY = floorPlane?.centroid_room ? floorPlane.centroid_room[1] : (floorPlane?.centroid ? floorPlane.centroid[1] : 0);
+
+    for (const item of placedFurniture) {
+      const geom = new THREE.BoxGeometry(item.length, item.height, item.width);
+      geom.translate(0, item.height / 2, 0);
+
+      const colorHex = item.valid
+        ? parseInt(item.color.replace("#", "0x"), 16) || 0x3b82f6
+        : 0xef4444;
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: colorHex,
+        roughness: 0.3,
+        metalness: 0.1,
+        transparent: true,
+        opacity: item.valid ? 0.75 : 0.85,
+      });
+
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(item.center_x, floorY, item.center_z);
+      mesh.rotation.y = (item.angle_deg * Math.PI) / 180;
+      groups.furniture.add(mesh);
+
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geom),
+        new THREE.LineBasicMaterial({ color: item.valid ? 0xffffff : 0xff2222, linewidth: 2 })
+      );
+      edges.position.copy(mesh.position);
+      edges.rotation.copy(mesh.rotation);
+      groups.furniture.add(edges);
+
+      const labelText = `${item.name}${item.valid ? "" : " (COLLIDES)"}`;
+      const label = makeTextSprite(labelText, item.valid ? "#ffffff" : "#ff4444");
+      label.position.set(item.center_x, floorY + item.height + 0.3, item.center_z);
+      groups.furniture.add(label);
+    }
+  }, [placedFurniture, twin]);
+
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }
 
@@ -303,6 +375,7 @@ function applyToggles(groups: Groups, toggles: Toggles) {
   groups.labels.visible = toggles.labels;
   groups.cameras.visible = toggles.cameras;
   groups.trajectory.visible = toggles.cameras;
+  groups.furniture.visible = toggles.furniture ?? true;
 }
 
 function applyHighlight(

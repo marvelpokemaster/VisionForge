@@ -172,3 +172,49 @@ def test_architectural_classifier_rotated_room_is_label_invariant():
     )
 
     assert base_by_geom == rotated_by_geom
+
+
+def test_architectural_classifier_camera_gravity_overrides_deviating_planes():
+    """When camera_gravity has high confidence (e.g. 0.999 on an upright phone),
+    it must take precedence over planar heuristics that deviate from physical gravity."""
+    # Build a box room where z is vertical
+    planes, all_points = _box_room()
+
+    # Create 10 cameras pointing horizontally with local -Y = world +Z (upright phone)
+    # Rotation quaternion for looking along +Y with local -Y pointing along +Z:
+    # R: cam X -> world X, cam Y -> world -Z, cam Z -> world Y
+    # quat = [x, y, z, w]
+    # For a rotation matrix [[1, 0, 0], [0, 0, -1], [0, 1, 0]]:
+    # quat is [-0.7071068, 0, 0, 0.7071068]
+    camera_data = [
+        {
+            "id": i,
+            "rotation_quat": [-0.7071068, 0.0, 0.0, 0.7071068],
+            "translation": [0.0, 0.0, 1.0],
+        }
+        for i in range(12)
+    ]
+
+    # Deliberately tilt the planes by 20 degrees (matching the 20.16 deg observed on real phone data)
+    tilt_angle = np.radians(20.0)
+    R_tilt = np.array([
+        [np.cos(tilt_angle), 0.0, np.sin(tilt_angle)],
+        [0.0, 1.0, 0.0],
+        [-np.sin(tilt_angle), 0.0, np.cos(tilt_angle)],
+    ])
+    tilted_planes = []
+    for p in planes:
+        norm = np.array(p["normal"]) @ R_tilt.T
+        tilted_planes.append({
+            **p,
+            "normal": (norm / np.linalg.norm(norm)).tolist(),
+        })
+
+    tilted_points = all_points @ R_tilt.T
+    result = classify_planes(tilted_planes, tilted_points, camera_data=camera_data)
+    coord = result["coordinate_system"]
+    assert "camera_gravity" in coord["up_source_agreement"]
+    final_up = np.array(coord["up_axis"])
+    # Gravity line is [0, 0, 1]
+    assert abs(np.dot(final_up, [0.0, 0.0, 1.0])) > 0.95
+

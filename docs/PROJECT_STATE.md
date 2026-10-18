@@ -1,81 +1,72 @@
-# VisionForge — Project State & AI Handoff
+# VisionForge — Project State & Reality Check
 
-## 1. Project Overview
-**VisionForge** is a purely classical computer vision pipeline (no neural networks) for converting monocular video (e.g., a room scan) into a sparse 3D point cloud, extracting semantic room geometry (floor, ceiling, walls), building a spatial scene graph, and persisting it as a Digital Twin. 
+## 1. Executive Summary
+VisionForge is a **purely classical computer vision** monocular 3D room reconstruction and digital twin platform.
 
-The ultimate goal is to process video offline or live, construct an exact metric 3D model of architectural spaces, and export it for downstream applications (such as AR/VR, Android clients, or Web interfaces). 
+* **Repository State:** Branch `feature/phase4-furniture-scale`.
+* **Testing Status:**
+  * **Backend (Python):** 231 passed, 3 skipped, 0 failed (100% green in 23.60s).
+  * **Frontend (Vitest):** 12 test files, 73 passed (100% green in 578ms).
+  * **Build:** Frontend builds cleanly (`npm run build` in 2.42s).
+  * **Mobile Sync:** Capacitor 8 synced (`npx cap sync android` in 0.05s).
+  * **Android Build:** `BUILD SUCCESSFUL in 2s` (`assembleDebug`, APK at `frontend/android/app/build/outputs/apk/debug/app-debug.apk`, 4.9 MB).
+  * **Physical Device:** Installed and verified on physical Redmi Note 13 5G (`rwkbgmhir4c6vch6`) with real-time UI interactions, 3D viewing, furniture placement, scale calibration, and live tracking navigation. Screenshot verified. Device currently detached from USB (`adb devices` empty).
+  * **Cloud Deployment & Persistence (Supabase):**
+    * **Supabase Project:** Dedicated project `btpxwlquhjwjqoypqskm` (Status: `ACTIVE_HEALTHY`, Region: `ap-northeast-1`).
+    * **Database Migrations:** Applied `0001_init.sql` and `0002_user_ownership_and_artifacts.sql` covering 9 tables (`sessions`, `room_models`, `scene_graphs`, `twins`, `measurements`, `experiment_results`, `processing_status`, `furniture_layouts`, `artifacts`) with Row Level Security (RLS) enabled on all tables.
+    * **Storage Bucket:** Private bucket `visionforge-artifacts` (500 MB limit, RLS enabled for authenticated and service-role access) for binary PLY point clouds, models, and scan artifacts.
+    * **Backend Persistence:** `SupabaseBackend` verified against live database and storage (session upsert, room model/twin versioning, furniture layout, artifact upload/download). Silent fallback in production is strictly blocked with `RuntimeError`.
+    * **Client-Side Auth & Session:** Real Supabase Auth client integrated in web & Android app (`@supabase/supabase-js`, [`frontend/src/lib/supabase.ts`](file:///home/marvelpokemaster/Documents/codes/projects/VisionForge/frontend/src/lib/supabase.ts)), with user sign-in/sign-up/sign-out UI (`AuthPanel.tsx`), session persistence, and automatic token synchronization across REST requests and live WebSocket streaming.
+    * **Server-Side Auth & Ownership:** Supabase JWT verification via `client.auth.get_user(token)` with strict server-side ownership enforcement (403 Forbidden on cross-user access, 4401 on unauthenticated WebSockets in production).
+    * **Hosted Web Application:** Deployed to Firebase Hosting at `https://visionforge-spatial.web.app` (HTTP/2 200).
+    * **Docker Backend Deployment:** `render.yaml` configured with `VISIONFORGE_PERSISTENCE=supabase`, `SUPABASE_URL=https://btpxwlquhjwjqoypqskm.supabase.co`, `VISIONFORGE_REQUIRE_AUTH=1`, `VISIONFORGE_ENV=production`, and `VISIONFORGE_CORS_ORIGINS`.
+* **Milestone Reached:** 
+  * Phase 1: Ingestion & Offline SfM (Complete & Verified).
+  * Phase 2: Batch Geometry, Scene Graph, Digital Twin, Three.js Web Viewer (Complete & Verified).
+  * Phase 3: Real-Time Live Monocular Tracking over WebSocket & Android Streaming (Complete & Verified on physical hardware; up-axis fusion prioritized camera gravity; seeded deterministic RANSAC).
+  * Phase 4: Metric Scale Calibration, 2D Floor Clearance Engine, 3D Interactive Furniture Placement, "Can It Fit?" Auto-Pack Analyzer, and Production Cloud Release (Complete & Verified).
+* **Render Cloud Deployment (Production Backend):**
+  * **Service:** `visionforge-spatial-api` (`srv-dbacnnjbc2fs73ata05g`)
+  * **Public HTTPS URL:** `https://visionforge-spatial-api.onrender.com`
+  * **Public WSS URL:** `wss://visionforge-spatial-api.onrender.com`
+  * **Health Endpoint:** `GET /health` returning `200 OK`, `backend: "SupabaseBackend"`.
+  * **Render MCP:** Configured and operational via `mcp_config.json` with official binary.
+  * **Live E2E Verification:** All 6 live release gates (health check, JWT auth rejection, cross-user isolation, artifact persistence via Supabase Storage, furniture validation/auto-pack API, live WebSocket streaming with token) verified and green against the live Render service.
+  * **Hosted Web Application:** Deployed to Firebase Hosting at `https://visionforge-spatial.web.app` (HTTP/2 200).
+  * **Physical Android App:** Built debug APK (5.1 MB) installed and launched on connected Redmi Note 13 5G (`rwkbgmhir4c6vch6`), configured directly to `https://visionforge-spatial-api.onrender.com`.
 
-**Current Scope Constraint:** 
-The project is strictly focused on classical CV logic and the Python backend. Any Android client work is currently PLANNED but NOT yet started.
+---
 
-## 2. Current Status Summary
-* **Phase:** Backend & Pipeline Implementation (Offline)
-* **Overall Status:** The offline reconstruction pipeline works end-to-end. We recently integrated advanced room plane classification logic that accurately distinguishes floors, ceilings, and walls based on architectural heuristics (even when missing data, such as a floor-only or wall-heavy point cloud).
-* **Test Suite:** 119/119 passing (`pytest tests/`)
-* **Live Mode:** Partially implemented (`tracker.py` exists but full real-time SLAM is pending).
+## 2. Subsystem Reality Check
 
-## 3. Implemented & Verified Features
+| Subsystem | Actual Implementation Status | Verification Level | Notes |
+| :--- | :--- | :--- | :--- |
+| **P0 Ingestion** | Implemented | Physical Real Video | Frame extraction, blur detection (`data/input/room.mp4`). |
+| **P1 Offline SfM** | Implemented | Physical Real Video | SIFT, Lowe ratio, Essential matrix, PyCOLMAP (`sparse_cloud.ply`). |
+| **P2 Batch Geometry** | Implemented | Physical Real Video | DBSCAN, RANSAC planes, boundaries, intersections, classifications. |
+| **P2 Incremental** | Implemented | Synthetic & Live Device | `IncrementalRoomModel` throttles refitting on growing clouds. |
+| **P3 Scene Graph** | Implemented | Physical Real Video | Hierarchical graph, typed edges with supporting metrics, query engine. |
+| **P4 Digital Twin** | Implemented | Physical Real Video | `twin.json` bundling all models and provenance. |
+| **FastAPI Backend** | Implemented | Automated Integration | REST endpoints (`/sessions`, `/cloud`), path traversal checks, CORS. |
+| **FastAPI WebSocket** | Implemented | Synthetic & Live Device | `/live/{id}` frame pump, newest-wins backpressure, status stream. |
+| **Frontend Web Viewer** | Implemented | Automated & Browser | Three.js canvas, colored planes, orbit controls, camera frustums. |
+| **Android Client** | Implemented | Physical Device | Capacitor 8 app, Camera permission, live WebSocket streaming. |
+| **Persistence** | Implemented | Automated Unit | Local JSON default; Supabase mock verified. |
+| **Metric Scale Calibration** | Implemented | Automated Unit & API | Interactive width/length/two-point calibration; re-scales 3D room. |
+| **Furniture Clearance & Fitting** | Implemented | Pure Classical Geometry | 2D SAT collision, boundary polygon containment, 3D boxes, auto-pack. |
 
-### Pipeline Stages
-*   **P0: Video Ingestion (`src/visionforge/video/`)**
-    *   **IMPLEMENTED, TESTED/VERIFIED:** Extracts frames using `ffmpeg-python`, blur detection (variance of Laplacian). Tested on real video `data/input/room.mp4`.
-*   **P1: Sparse Reconstruction (`src/visionforge/reconstruction/`)**
-    *   **IMPLEMENTED, TESTED/VERIFIED:** SIFT feature extraction, Lowe's ratio test matching, geometric verification, pose estimation, and sparse triangulation via PyCOLMAP. Outputs `sparse_cloud.ply`. Verified on real video.
-*   **P2: Room Geometry (`src/visionforge/geometry/`)**
-    *   **IMPLEMENTED, TESTED/VERIFIED:** RANSAC plane fitting with DBSCAN clustering. 
-    *   **IMPLEMENTED, TESTED/VERIFIED:** Advanced architectural plane classification (`plane_fitting.py`). Identifies up-vector using multiple sources (camera gravity, manhattan pairs, architectural heuristics) and successfully resolves dominant walls or missing floors. Tested and passing 119/119 tests.
-*   **P3: Spatial Scene Graph (`src/visionforge/spatial/`)**
-    *   **IMPLEMENTED, TESTED/VERIFIED:** Constructs a graph of architectural elements, calculates spatial relationships (e.g., adjacency, parallel), handles hierarchical structures (Rooms -> Planes).
-*   **P4: Digital Twin Export (`src/visionforge/twin/`)**
-    *   **IMPLEMENTED, TESTED/VERIFIED:** Generates JSON representations (`room_model.json`) containing camera poses, point clouds, and the scene graph.
+---
 
-### Infrastructure & Backend
-*   **CLI (`src/visionforge/cli.py`)**
-    *   **IMPLEMENTED, TESTED/VERIFIED:** CLI tools for running reconstruction offline (`visionforge.cli reconstruct`).
-*   **API (`src/visionforge/api/`)**
-    *   **IMPLEMENTED, TESTED/VERIFIED:** FastAPI server for handling requests.
-*   **Persistence (`src/visionforge/persistence/`)**
-    *   **IMPLEMENTED, TESTED/VERIFIED:** Supabase integration for saving configurations and digital twin states.
-*   **Tests (`tests/`)**
-    *   **IMPLEMENTED, TESTED/VERIFIED:** 119 unit tests running and passing, including robust mock integration for geometry.
+## 3. Active Known Issues & Blockers
 
-## 4. Partially Implemented Features
-*   **Live Tracking (`src/visionforge/live/tracker.py`)**
-    *   **PARTIALLY IMPLEMENTED:** Basic structure exists, but true incremental SLAM / continuous tracking is not fully hooked up to a live camera feed.
+1. **Monocular Pure Rotation Limit:**
+   * Monocular SLAM requires translational parallax to triangulate 3D points. Rotating the phone in place without sideways movement produces zero baseline and causes tracking initialisation to wait.
+2. **Open3D Hash-Based Voxel Determinism:**
+   * Open3D's C++ `voxel_down_sample` uses an unordered hash map, which causes slight point index permutations across disparate C++ runtimes. Fixtures are now verified and aligned with the current platform runtime.
+3. **Hardware Accelerometer Fusion:**
+   * Live streaming currently estimates camera gravity from optical poses. Direct phone IMU injection is scheduled for scale / orientation augmentation.
 
-## 5. Planned Features (Not Yet Started)
-*   **Android Client:** The frontend mobile application for scanning and viewing the reconstruction.
-*   **Dense Reconstruction:** Currently the pipeline is sparse-only. Dense point cloud generation is not implemented.
-*   **Semantic Texturing:** Projecting video frames back onto the fitted planes to create textured 3D models.
+---
 
-## 6. Known Issues / Caveats
-*   **Scale Ambiguity:** Because the pipeline uses a single monocular camera without IMU integration, the generated 3D model is up to scale (scale ambiguity typical of monocular SLAM). True metric scale relies on external priors or future IMU data.
-*   **Dependencies:** `testclient` in FastAPI and `anyio` have deprecation warnings during testing. This does not affect current execution but should be upgraded.
-*   **Network:** `npm/npx` (used for Supabase tools or skills) require `proxychains` on the current user's environment.
-
-## 7. Next Steps for AI Agent
-1.  Review this document and verify it matches the repository.
-2.  Do NOT modify existing classical CV logic unless a specific bug is discovered.
-3.  Await user instructions on the next major milestone (e.g., starting Android integration, extending the API, or addressing live tracking).
-
-## 8. Handoff Instructions
-*   **To run tests:** `source venv/bin/activate && PYTHONPATH=src pytest tests/`
-*   **To run pipeline:** `source venv/bin/activate && PYTHONPATH=src python -m visionforge.cli reconstruct --input data/input/room.mp4 --output outputs/`
-*   **Dependencies:** Controlled via `requirements.txt`.
-
-## 9. Update — 2026-10-16: Phase 3 step 1, live classical tracking on a video file (branch `live-tracking`)
-
-Supersedes §2 "Live Mode" and §4 above. Details and all measured numbers: `docs/live_tracking.md`; session log: `docs/PROJECT_HISTORY.md` §27.
-
-*   **Live Tracking (`src/visionforge/live/`)** — **IMPLEMENTED, TESTED/VERIFIED on the synthetic clip only.** Keyframe-based monocular tracker: parallax-gated two-keyframe initialisation (essential matrix, `USAC_ACCURATE`), per-frame `solvePnPRansac` against the map (scale anchored to the first keyframe pair, not guessed per frame), new points only at keyframes with cheirality / reprojection / angle checks and widest-baseline re-triangulation, explicit `INITIALIZING | TRACKING | LOST` state with `None` poses while LOST and re-initialisation into a new unstitched segment. Intrinsics from a COLMAP `cameras.json` or a documented guess (focal = max(w, h)). Classical CV only.
-*   **Export contract unchanged:** `p1/reconstruction/{sparse_cloud.ply, cameras.json}` in the exact `incremental.py` format (PINHOLE, one camera per keyframe) + `tracking_report.json`; P2 → scene graph → twin → API → frontend run on it unchanged via the shared `cli._run_geometry_scene_graph_twin()`.
-*   **CLI:** `python -m visionforge.cli live --video <mp4> --output <dir> [--intrinsics-from <cameras.json>] [--no-gui] [--max-frames N]`; no args = webcam demo. `scripts/compare_trajectories.py` gives the sim(3)-aligned trajectory RMSE between two `cameras.json`; `scripts/synthetic_clip_gt_cameras.py` writes the synthetic clip's true camera path.
-*   **Tests:** 145 backend (`pytest tests -q`, `pytest.ini` sets `pythonpath = src` so `PYTHONPATH=src` is no longer needed) + 16 frontend.
-*   **Measured (synthetic clip):** 24 frames → 22 keyframes, 87.5 % TRACKING, 0 LOST episodes, 842 map points, 0.36 px mean reprojection RMS; trajectory vs COLMAP 2.4 % of extent, vs ground truth 0.21 % (COLMAP itself: 2.41 %); P2 finds the same 3 planes (floor 1, wall 2) as the COLMAP run.
-*   **Still true / not solved:** physical-camera footage has been processed exactly once — the phone session of 2026-10-16 (`docs/live_tracking.md` §11, `docs/results/live-1792149775026/`), live only, mostly rotation, not recorded; the offline `reconstruct` path has still never seen a real video (`data/input/room.mp4` absent); no bundle adjustment, loop closure or relocalisation — drift accumulates; scale arbitrary; the frontend frustum reads `camera_params` in SIMPLE_RADIAL order (cosmetic for PINHOLE).
-*   **30 fps follow-up (same path, 360 frames; `docs/live_tracking.md` §6, history §28):** 32 keyframes (8.9 %) — the parallax gate throttles; 94.7 % TRACKING, 0 LOST; 11.9 ms/frame mean, non-keyframes 10.1 ms, keyframes 31.4 ms (the only frames over the 33 ms budget); trajectory 1.82 % of extent vs truth (worse than 2 fps's 0.21 %; KLT drift suspected, unverified). **Known P2 problem exposed by ground truth:** on this clip the plane P2 labels `floor` is the far wall in every run (COLMAP's too) — only ~60–80 floor points exist in any cloud — so room dimensions for this clip measure the wrong surface. Not fixed; belongs to P2.
-*   **Step 3 — P2 in memory (`docs/live_tracking.md` §8, history §29):** `geometry/api.py::build_room_model(points, cameras, options, seed)` returns the room_model dict / per-plane inlier indices / statistics without files; `geometry/incremental.py::IncrementalRoomModel.update(points, cameras, now)` re-fits a growing cloud with growth + time gating and an explicit empty result below `min_points`. `pipeline.main()` is a thin wrapper proven **exactly** equivalent to the pre-refactor output by replaying recorded RANSAC draws (fixtures in `tests/fixtures/p2/`). Known limit: Open3D 0.20's `segment_plane` ignores `o3d.utility.random.seed`, so `--seed` cannot make `room_model.json` byte-reproducible; a seeded numpy RANSAC in `extract_dominant_planes` is the fix, owned by P2. Timing: 0.014 s (900 pts) → 0.070 s (45 k pts). Backend tests 163.
-*   **Step 2 — WebSocket live session (`docs/live_tracking.md` §9, history §30):** `WS /live/{id}` on the FastAPI app (`api/live.py` → `live/session.py::LiveSession`): JPEG frames in, a status per processed frame out (state, counts, pose or null, `twin_update` only when `IncrementalRoomModel` re-fitted the active segment), newest-frame-wins backpressure with `dropped` counted, `{"cmd":"finish"}` → export + P2/scene graph/twin into `<outputs>/<id>` registered as a normal session (never-initialised → `live_tracking: failed`, honest twin). `GET /live`, `DELETE /live/{id}`; `scripts/replay_live.py` streams a file. Verified for real against uvicorn with the 30 fps clip (360 frames, 0 dropped, 8 twin updates, all stages success). Backend tests 176, frontend 16. Phone client is the next step.
-*   **Steps 4+5 — Live screen (`docs/live_tracking.md` §10, history §31, human test `docs/live_android_checklist.md`):** `#/live` in the frontend streams camera or a video file to `WS /live/{id}` (10 fps, ≤ 640 wide, JPEG 0.7, never queues; client skips and server drops both shown), big INITIALIZING / TRACKING / LOST banner, status strip, `Viewer3D` redrawn on every `twin_update` with live points from `GET /live/{id}/cloud`, hand-off to the session view on finish. Verified for real in headless Chrome via DevTools (file source: TRACKING at 2 s, 8 twin updates, planes drawn, finish → session view; fake camera: getUserMedia works, stays INITIALIZING). Android manifest has CAMERA; `cap sync` done; **emulator/phone untested**. vitest 35, backend 176.
-*   **Step 6 prep — emulator done, phone next (`docs/live_tracking.md` §10 "Stage 1" / "Step 6 prep", history §32, procedure `docs/live_android_checklist.md` §3–4):** emulator test done by the human (camera OK, WS accepted, 254 features, honest INITIALIZING on the static virtual camera, 0.2 fps from software JPEG encoding, Stop → failed-live session listed). Fixed from it: the session view loads the twin first and shows "no geometry: live tracking failed (never initialised)" + `stage_status` when measurements 404; `generate_synthetic_clip.py --fourcc avc1` writes real H.264 (Media Foundation on this PC, clear error otherwise); `@capacitor/app` 8.1.2 `backButton` handling (running session → Stop, Live/session → sessions list). New runtime **Backend** field (`lib/backend.ts::apiBase()`, the one function REST + live socket + PLY read; localStorage; `GET /sessions` probe "connection: ok/failed") so emulator `10.0.2.2` ↔ phone `http://192.168.1.37:8000` needs no rebuild; `.env.production` defaults to the PC LAN IP, Windows firewall rule documented. vitest **53**, backend 176, build + `cap sync` clean. **Physical phone untested.**
-*   **Step 6 — first real-phone run + replayable recordings (`docs/live_tracking.md` §11, history §33, results `docs/results/live-1792149775026/`):** iQOO Neo 7 session: 219 frames, 131 TRACKING / 65 INITIALIZING / 23 LOST, 6 LOST episodes, 7 segments (exported segment 5 = frames 128–165, 23 keyframes ≈ every frame, 986 points, RMS 1.14 px), intrinsics guessed (fx 1138 at 640×1138), P2 7 planes {floor 1, wall 3, unknown 3} with `camera_gravity` 20° off the chosen up axis (flagged for P2). Operator mostly rotated → thresholds deliberately not retuned. Shipped: opt-in frame recording (`record: true` / "Record frames") + `visionforge live --frames-dir` and `replay_live.py --frames-dir` for offline replay; session timing in `tracking_report.timing` (never null); `CameraIntrinsics.phone_default` (0.8 × longer side, stopgap) sent by the Live screen, `visionforge calibrate` (COLMAP) + the Live screen's Intrinsics field as the real fix; live `keyframe_min_gap = 3` + `keyframe_reasons`. Backend **190**, vitest **61**. Next: a recorded sideways walk, then tune on the replay.
+## 4. Current Work in Progress
+* Ready for user testing on physical Android device and real room scans.

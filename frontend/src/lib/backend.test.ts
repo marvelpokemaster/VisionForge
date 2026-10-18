@@ -91,6 +91,12 @@ describe("probeBackend", () => {
     expect(r).toEqual({ ok: true, sessions: 2, ms: 12 });
   });
 
+  it("reports ok with authRequired on a 401 from GET /sessions in production", async () => {
+    const authReq = (async () => new Response("unauthorized", { status: 401, statusText: "Unauthorized" })) as typeof fetch;
+    const r = await probeBackend("https://visionforge-spatial-api.onrender.com", authReq);
+    expect(r).toMatchObject({ ok: true, sessions: 0, authRequired: true });
+  });
+
   it("reports a failed status and a thrown fetch (unreachable host)", async () => {
     const bad = (async () => new Response("nope", { status: 503, statusText: "Service Unavailable" })) as typeof fetch;
     expect(await probeBackend("http://h", bad)).toMatchObject({ ok: false, error: "GET /sessions -> 503 Service Unavailable" });

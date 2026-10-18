@@ -14,6 +14,9 @@ input/
 
 # Agent skills
 .agents/
+.claude/
+agent/
+data/skills/
 skills-lock.json
 
 # Frontend
@@ -26,3 +29,7 @@ frontend/vite.config.d.ts
 
 # Android Studio project files (machine-specific)
 frontend/android/.idea/
+
+# Firebase local cache
+.firebase/
+

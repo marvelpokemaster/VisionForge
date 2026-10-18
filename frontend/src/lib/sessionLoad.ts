@@ -20,7 +20,7 @@ export interface SessionView {
 }
 
 export function hasGeometry(twin: Twin): boolean {
-  return twin.room_model !== null && twin.room_model.planes.length > 0;
+  return Boolean(twin?.room_model?.planes && twin.room_model.planes.length > 0);
 }
 
 /** The honest one-liner for a twin with no planes, from its stage_status. */
