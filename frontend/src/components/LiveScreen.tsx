@@ -10,6 +10,8 @@ import { CameraSource, FileSource, type FrameSource } from "../live/source";
 import { FramePump } from "../live/pump";
 import { makeJpegEncoder, encodedSize } from "../live/encode";
 import { currentLiveSocketUrl, currentLiveCloudUrl } from "../live/wsUrl";
+import { getCurrentSession, getCurrentUser } from "../lib/supabase";
+import { readAuthToken } from "../lib/backend";
 import {
   addClientSkips,
   initialSummary,
@@ -53,11 +55,19 @@ export default function LiveScreen() {
   const [sendSize, setSendSize] = useState<{ width: number; height: number } | null>(null);
   const [skipBreakdown, setSkipBreakdown] = useState<string>("");
   const [sourceEnded, setSourceEnded] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [toggles] = useState<Toggles>({ pointCloud: true, geometry: true, labels: true, cameras: true });
   // "Record frames": the server keeps every received JPEG for offline replay (default off, persisted)
   const [record, setRecord] = useState<boolean>(() => readStored(RECORD_KEY) === "1");
   // calibration from `visionforge calibrate` (persisted); null -> the phone-default stopgap
   const [cameras, setCameras] = useState<ParsedCameras | null>(loadStoredIntrinsics);
+
+  useEffect(() => {
+    void getCurrentUser().then((u) => {
+      setIsAuthenticated(Boolean(u) || Boolean(readAuthToken()));
+    });
+  }, []);
 
   function toggleRecord(on: boolean) {
     setRecord(on);
@@ -127,12 +137,18 @@ export default function LiveScreen() {
     setSourceEnded(false);
     setSkipBreakdown("");
     setSummary(initialSummary());
+
+    // Verify authentication before attempting connection
+    const currentSession = await getCurrentSession();
+    const token = currentSession?.access_token ?? readAuthToken();
+
     const video = videoRef.current;
     if (!video) return;
     if (sourceKind === "file" && !file) {
       setError("Choose a video file first.");
       return;
     }
+
     const source: FrameSource = sourceKind === "camera" ? new CameraSource(video) : new FileSource(video, file as File);
     sourceRef.current = source;
     let size;
@@ -147,7 +163,7 @@ export default function LiveScreen() {
     const sent = encodedSize(size, MAX_WIDTH);
     setSendSize(sent);
 
-    const url = currentLiveSocketUrl(sessionId, window.location);
+    const url = currentLiveSocketUrl(sessionId, window.location, token);
     const ws = new WebSocket(url);
     socketRef.current = ws;
     const pump = new FramePump(ws, makeJpegEncoder(source, MAX_WIDTH, JPEG_QUALITY), { fps: FPS });
@@ -157,10 +173,10 @@ export default function LiveScreen() {
     pumpRef.current = pump;
 
     ws.onopen = () => {
-      // frame size + intrinsics for THAT size (calibration or phone default) + record flag
       pump.start(sent.width, sent.height, configureMessage(sent, { cameras, record }));
       setRunning(true);
     };
+
     ws.onmessage = (ev) => {
       let msg: unknown;
       try {
@@ -184,10 +200,32 @@ export default function LiveScreen() {
         setSummary((s) => reduceStatus(s, m as unknown as LiveStatusMessage, performance.now()));
       }
     };
-    ws.onerror = () => setError(`WebSocket error (${url}) — is the backend running and reachable?`);
+
+    ws.onerror = () => {
+      if (!token) {
+        setError("Authentication required: Please sign in to connect to live tracking.");
+      } else {
+        setError(`WebSocket connection error — please ensure cloud backend is reachable.`);
+      }
+    };
+
     ws.onclose = (ev) => {
       if (ev.code !== 1000 && ev.code !== 1005) {
-        setError(`Socket closed: ${ev.code} ${ev.reason || ""}`.trim());
+        if (ev.code === 4401) {
+          setError("Authentication required or expired. Please sign in to your account.");
+        } else if (ev.code === 1006) {
+          // 1006 is abnormal closure, commonly triggered by 401 handshake rejection behind proxies
+          const hasToken = Boolean(readAuthToken());
+          setError(
+            !hasToken
+              ? "Authentication required (1006). Please sign in before starting live tracking."
+              : "Live socket connection closed unexpectedly (1006). Please check network and retry."
+          );
+        } else if (ev.code === 4409) {
+          setError(`Session '${sessionId}' is already active. Please generate a new session ID.`);
+        } else {
+          setError(`Socket closed: ${ev.code} ${ev.reason || ""}`.trim());
+        }
       }
       teardown();
     };
@@ -197,7 +235,7 @@ export default function LiveScreen() {
     if (stoppingRef.current) return;
     stoppingRef.current = true;
     setStopping(true);
-    pumpRef.current?.stop(); // sends {"cmd":"finish"}; the finished reply closes the loop
+    pumpRef.current?.stop();
     sourceRef.current?.stop();
   }
 
@@ -207,83 +245,135 @@ export default function LiveScreen() {
 
   return (
     <div className="live-screen">
+      {/* Sleek App Navigation Bar */}
       <header className="live-header">
-        <button className="link" onClick={() => navigate({ kind: "home" })}>
-          ← Sessions
+        <button type="button" className="nav-back-btn" onClick={() => navigate({ kind: "home" })} title="Back to Sessions">
+          ← Spaces
         </button>
-        <h2>Live tracking</h2>
-        <BackendField disabled={running || stopping} />
+        <div className="live-header-title">
+          <h2>Live Spatial Scanner</h2>
+          <span className={`status-dot-badge status-${summary.state.toLowerCase()}`}>
+            <span className="dot" /> {running ? summary.state : "Ready to scan"}
+          </span>
+        </div>
+        <button
+          type="button"
+          className="settings-toggle-btn"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          title="Toggle settings & backend"
+        >
+          ⚙ Settings
+        </button>
       </header>
 
-      <div className="live-controls">
-        <label>
-          Session id{" "}
-          <input value={sessionId} disabled={running} onChange={(e) => setSessionId(e.target.value)} />
-        </label>
-        <label>
-          Source{" "}
-          <select value={sourceKind} disabled={running} onChange={(e) => setSourceKind(e.target.value as SourceKind)}>
-            <option value="camera">camera</option>
-            <option value="file">video file</option>
-          </select>
-        </label>
-        {sourceKind === "file" && (
-          <input type="file" accept="video/*" disabled={running} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-        )}
-        <label title="server keeps every received JPEG under outputs/<id>/frames for offline replay (visionforge live --frames-dir)">
-          <input type="checkbox" checked={record} disabled={running} onChange={(e) => toggleRecord(e.target.checked)} /> Record frames
-        </label>
-        <IntrinsicsField value={cameras} onChange={setCameras} disabled={running || stopping} />
-        {!running ? (
-          <button className="primary" onClick={() => void start()} disabled={stopping}>
-            Start
-          </button>
-        ) : (
-          <button className="danger" onClick={stop} disabled={stopping}>
-            {stopping ? "Finishing…" : "Stop"}
-          </button>
-        )}
-      </div>
-
-      <div className={`live-state live-state-${summary.state.toLowerCase()}`} role="status" aria-live="polite">
-        {summary.state === "IDLE" ? "IDLE" : summary.state}
-        {summary.state === "LOST" && <span className="live-state-sub">tracking lost — move slowly back to previous location or pan slowly across room</span>}
-        {summary.state === "INITIALIZING" && <span className="live-state-sub">do not rotate in place — walk slowly sideways 1–2m pointing at wall (parallax needed)</span>}
-      </div>
-
-      {error && <p className="error">{error}</p>}
-
-      <div className="live-status-strip">
-        <span>frame {summary.frameIndex ?? "–"}</span>
-        <span>tracked {summary.nTracked}</span>
-        <span>inliers {summary.nInliers}</span>
-        <span>map {summary.mapSize}</span>
-        <span>keyframes {summary.nKeyframes}</span>
-        <span>segment {summary.segment ?? "–"}</span>
-        <span title="frames the server dropped (backpressure)">dropped {summary.dropped}</span>
-        <span title={`frames this client chose not to send (${skipBreakdown || "no skips yet"})`}>
-          skipped {summary.skippedClient}
-          {skipBreakdown && <small> ({skipBreakdown})</small>}
-        </span>
-        {sourceEnded && <span className="live-ended">video ended — finishing</span>}
-        <span>{summary.fpsMeasured !== null ? `${summary.fpsMeasured.toFixed(1)} fps` : "– fps"}</span>
-        <span>twin updates {summary.twinUpdates}</span>
-        <span>lost episodes {summary.lostEpisodes.length}</span>
-        {sendSize && (
-          <span>
-            sending {sendSize.width}×{sendSize.height}
-            {summary.processedSize ? ` → tracked at ${summary.processedSize[0]}×${summary.processedSize[1]}` : ""}
-          </span>
-        )}
-        {summary.intrinsicsSource && <span>intrinsics: {summary.intrinsicsSource}</span>}
-      </div>
-
-      <div className="live-body">
-        <div className="live-preview">
-          <video ref={videoRef} playsInline muted />
+      {/* Collapsible Settings Drawer */}
+      {showAdvanced && (
+        <div className="live-settings-drawer">
+          <BackendField disabled={running || stopping} />
+          <div className="settings-grid">
+            <label className="field-group">
+              <span className="field-label">Session ID</span>
+              <input value={sessionId} disabled={running} onChange={(e) => setSessionId(e.target.value)} />
+            </label>
+            <label className="field-group">
+              <span className="field-label">Input Source</span>
+              <select value={sourceKind} disabled={running} onChange={(e) => setSourceKind(e.target.value as SourceKind)}>
+                <option value="camera">Live Phone Camera</option>
+                <option value="file">Pre-recorded Video</option>
+              </select>
+            </label>
+            {sourceKind === "file" && (
+              <label className="field-group">
+                <span className="field-label">Choose File</span>
+                <input type="file" accept="video/*" disabled={running} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              </label>
+            )}
+            <label className="checkbox-group">
+              <input type="checkbox" checked={record} disabled={running} onChange={(e) => toggleRecord(e.target.checked)} />
+              <span>Record raw video frames</span>
+            </label>
+            {sendSize && (
+              <div className="field-hint muted" style={{ fontSize: "11px" }}>
+                Resolution: {sendSize.width}×{sendSize.height}
+              </div>
+            )}
+            {skipBreakdown && (
+              <div className="field-hint muted" style={{ fontSize: "11px" }}>
+                Client skips: {skipBreakdown}
+              </div>
+            )}
+            {sourceEnded && (
+              <div className="field-hint muted" style={{ fontSize: "11px" }}>
+                Source video stream completed
+              </div>
+            )}
+          </div>
+          <IntrinsicsField value={cameras} onChange={setCameras} disabled={running || stopping} />
         </div>
-        <div className="live-viewer">
-          {viewerTwin ? (
+      )}
+
+      {/* Auth Prompt Banner if not signed in */}
+      {isAuthenticated === false && (
+        <div className="auth-alert-banner">
+          <span>🔒 Sign in to save and stream 3D digital twins to your private cloud storage.</span>
+          <button type="button" className="auth-alert-btn" onClick={() => navigate({ kind: "home" })}>
+            Sign In / Up
+          </button>
+        </div>
+      )}
+
+      {/* Error Banner with helpful action */}
+      {error && (
+        <div className="live-error-banner" role="alert">
+          <span className="error-icon">⚠️</span>
+          <span className="error-text">{error}</span>
+        </div>
+      )}
+
+      {/* AR Scanning Viewport */}
+      <div className="live-viewport-card">
+        <div className="viewfinder-container">
+          <video ref={videoRef} playsInline muted className="viewfinder-video" />
+          
+          {/* Subtle AR Reticle Overlay */}
+          <div className={`ar-reticle-overlay ${running ? "active" : ""}`}>
+            <div className="reticle-corner top-left" />
+            <div className="reticle-corner top-right" />
+            <div className="reticle-corner bottom-left" />
+            <div className="reticle-corner bottom-right" />
+            {!running && (
+              <div className="ar-guidance-pill">
+                <span>Point camera at walls & walk sideways slowly for depth parallax</span>
+              </div>
+            )}
+          </div>
+
+          {/* Minimal Live Stats Pill Bar */}
+          {running && (
+            <div className="live-hud-pill-bar">
+              <div className="hud-pill">
+                <span className="hud-label">Tracked</span>
+                <span className="hud-val">{summary.nTracked}</span>
+              </div>
+              <div className="hud-pill">
+                <span className="hud-label">Map Pts</span>
+                <span className="hud-val">{summary.mapSize}</span>
+              </div>
+              <div className="hud-pill">
+                <span className="hud-label">Keyframes</span>
+                <span className="hud-val">{summary.nKeyframes}</span>
+              </div>
+              <div className="hud-pill">
+                <span className="hud-label">FPS</span>
+                <span className="hud-val">{summary.fpsMeasured !== null ? summary.fpsMeasured.toFixed(0) : "10"}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 3D Geometry Map Preview */}
+        {viewerTwin ? (
+          <div className="live-viewer-sidecar">
             <Viewer3D
               sessionId={sessionId}
               twin={viewerTwin}
@@ -292,22 +382,55 @@ export default function LiveScreen() {
               onSelectPlane={() => undefined}
               cloudUrl={currentLiveCloudUrl(sessionId)}
             />
-          ) : (
-            <p className="muted live-placeholder">
-              {reason ? `no geometry yet: ${reason}` : running ? "waiting for the first twin update…" : "not running"}
-            </p>
-          )}
-        </div>
+          </div>
+        ) : running && reason ? (
+          <div className="live-sidecar-placeholder" title={reason}>
+            <span className="placeholder-icon">📐</span>
+            <span className="placeholder-text">{reason}</span>
+          </div>
+        ) : null}
       </div>
 
+      {/* Floating Tactical Bottom Bar */}
+      <div className="live-action-dock">
+        {!running ? (
+          <button
+            type="button"
+            className="action-pill-btn start-scan-btn"
+            onClick={() => void start()}
+            disabled={stopping}
+          >
+            <span className="btn-icon">▶</span> Start Scanning
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="action-pill-btn stop-scan-btn"
+            onClick={stop}
+            disabled={stopping}
+          >
+            <span className="btn-icon">⏹</span> {stopping ? "Processing 3D Twin…" : "Finish & Save Space"}
+          </button>
+        )}
+      </div>
+
+      {/* Completion Toast */}
       {finished && (
-        <p className="muted">
-          finished: {finished.frames} frames processed, {finished.dropped} dropped, {finished.twin_updates} twin updates
-          {finished.recording ? `, recorded ${finished.recording.received} frames → ${finished.run_dir}/${finished.recording.dir}` : ""} →{" "}
-          {Object.entries(finished.stage_status)
-            .map(([k, v]) => `${k}: ${v}`)
-            .join(", ")}
-        </p>
+        <div className="live-guidance-toast finished">
+          🎉 Scan complete! Processed {finished.frames} frames ({finished.twin_updates} spatial updates) for {finished.session_id}.
+        </div>
+      )}
+
+      {/* Live Status Guidance Notice */}
+      {running && summary.state === "INITIALIZING" && (
+        <div className="live-guidance-toast initializing">
+          🚶 Move camera sideways 1–2 meters while facing the room to establish depth parallax.
+        </div>
+      )}
+      {running && summary.state === "LOST" && (
+        <div className="live-guidance-toast lost">
+          🔄 Tracking lost: pan slowly across the room to re-localize camera.
+        </div>
       )}
     </div>
   );

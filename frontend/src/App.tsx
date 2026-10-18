@@ -33,6 +33,8 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
   const [error, setError] = useState<string | null>(null);
   const [placedFurniture, setPlacedFurniture] = useState<PlacedFurniture[]>([]);
   const [reloadTrigger, setReloadTrigger] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const reloadSession = useCallback(() => {
     setReloadTrigger((n) => n + 1);
@@ -46,9 +48,6 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
     furniture: true,
   });
 
-  // (Re)load the session list on mount, whenever the route names a session
-  // (e.g. a live session that just finished) and whenever the backend URL
-  // changes, selecting the routed id if given.
   useEffect(() => {
     setError(null);
     listSessions()
@@ -69,11 +68,9 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
   function selectSession(id: string) {
     setSelectedSessionId(id);
     navigate({ kind: "session", id });
+    setSidebarOpen(false); // Auto-close drawer on mobile when session selected
   }
 
-  // Twin first, then measurements: a session whose geometry never ran (a live
-  // session that never initialised) has a twin with stage_status but no
-  // scene graph, so its measurements 404 -- that is a notice, not an error.
   useEffect(() => {
     if (!selectedSessionId) return;
     setTwin(null);
@@ -108,91 +105,182 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
   const stageStatus = twin ? Object.entries(twin.provenance.stage_status) : [];
 
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <button className="live-link" onClick={() => navigate({ kind: "live" })}>
-          ● Live tracking
-        </button>
-        <AuthPanel onAuthChange={reloadSession} />
-        <BackendField />
-        <SessionList sessions={sessions} selectedId={selectedSessionId} onSelect={selectSession} />
-        {measurements && <MeasurementsPanel measurements={measurements} />}
-        {selectedSessionId && twin && hasGeometry(twin) && (
-          <FurniturePanel
-            sessionId={selectedSessionId}
-            twin={twin}
-            placedFurniture={placedFurniture}
-            onPlacedFurnitureChange={setPlacedFurniture}
-            onSessionUpdated={reloadSession}
-          />
-        )}
-        {selectedSessionId && <QueryBox sessionId={selectedSessionId} />}
-        {twin && <InspectPanel plane={selectedPlane} sceneGraph={twin.scene_graph} />}
-      </aside>
-
-      <main className="viewer">
-        {twin?.provenance.input_type === "synthetic" && (
-          <div className="synthetic-banner">synthetic input — not physical-camera footage</div>
-        )}
-
-        <div className="toggles">
-          <label>
-            <input type="checkbox" checked={toggles.pointCloud} onChange={() => toggle("pointCloud")} /> Point cloud
-          </label>
-          <label>
-            <input type="checkbox" checked={toggles.geometry} onChange={() => toggle("geometry")} /> Geometry
-          </label>
-          <label>
-            <input type="checkbox" checked={toggles.labels} onChange={() => toggle("labels")} /> Labels
-          </label>
-          <label>
-            <input type="checkbox" checked={toggles.cameras} onChange={() => toggle("cameras")} /> Cameras
-          </label>
-          <label>
-            <input type="checkbox" checked={toggles.furniture ?? true} onChange={() => toggle("furniture" as any)} /> Furniture
-          </label>
+    <div className="app-container">
+      {/* Sleek Modern App Header */}
+      <header className="app-header">
+        <div className="header-brand">
+          <span className="brand-logo-icon">📐</span>
+          <div className="brand-text">
+            <h1>VisionForge</h1>
+            <span className="brand-badge">Spatial Twin</span>
+          </div>
         </div>
 
-        {error && <p className="error">{error}</p>}
+        {/* Top Navigation Tabs */}
+        <nav className="header-nav">
+          <button type="button" className="nav-tab active">
+            🏛️ 3D Spaces
+          </button>
+          <button type="button" className="nav-tab live-tab" onClick={() => navigate({ kind: "live" })}>
+            <span className="live-dot" /> Live Scan
+          </button>
+        </nav>
 
-        {selectedSessionId && twin ? (
-          hasGeometry(twin) ? (
-            <>
-              {notice && <p className="session-notice">{notice}</p>}
-              <Viewer3D
-                sessionId={selectedSessionId}
-                twin={twin}
-                toggles={toggles}
-                selectedPlaneId={selectedPlaneId}
-                onSelectPlane={setSelectedPlaneId}
-                placedFurniture={placedFurniture}
-              />
-            </>
-          ) : (
-            <div className="session-notice session-notice-block" role="status">
-              <p>
-                <strong>{selectedSessionId}</strong>: {notice ?? "no geometry"}
-              </p>
-              <ul className="stage-list">
-                {stageStatus.map(([stage, status]) => (
-                  <li key={stage} className={`stage-${status}`}>
-                    {stage}: {status}
-                  </li>
-                ))}
-              </ul>
-              {twin.provenance.live && (
-                <p className="muted">
-                  live session: {twin.provenance.frames ?? "?"} frames, {twin.provenance.keyframes ?? 0} keyframes,{" "}
-                  {twin.provenance.map_size ?? 0} map points — the tracker needs sideways camera translation
-                  (parallax) to initialise; a static or rotating-only camera never leaves INITIALIZING.
-                </p>
-              )}
+        {/* Right Action Tools */}
+        <div className="header-actions">
+          <button
+            type="button"
+            className="header-icon-btn mobile-menu-btn"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            title="Toggle spaces sidebar"
+          >
+            {sidebarOpen ? "✕ Close" : "📁 Spaces"}
+          </button>
+          <button
+            type="button"
+            className="header-icon-btn settings-btn"
+            onClick={() => setShowSettings(!showSettings)}
+            title="Configure backend & options"
+          >
+            ⚙
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <div className="app-body">
+        {/* Collapsible Clean Sidebar */}
+        <aside className={`sidebar ${sidebarOpen ? "open" : ""}`}>
+          <div className="sidebar-header">
+            <h3>Saved Spaces ({sessions.length})</h3>
+            <button type="button" className="sidebar-close-btn" onClick={() => setSidebarOpen(false)}>
+              ✕
+            </button>
+          </div>
+
+          <AuthPanel onAuthChange={reloadSession} />
+
+          {showSettings && (
+            <div className="sidebar-settings-card">
+              <h4>Server Configuration</h4>
+              <BackendField />
             </div>
-          )
-        ) : (
-          <p className="muted">Select a session to load its digital twin.</p>
-        )}
-      </main>
+          )}
+
+          <SessionList sessions={sessions} selectedId={selectedSessionId} onSelect={selectSession} />
+
+          {measurements && <MeasurementsPanel measurements={measurements} />}
+
+          {selectedSessionId && twin && hasGeometry(twin) && (
+            <FurniturePanel
+              sessionId={selectedSessionId}
+              twin={twin}
+              placedFurniture={placedFurniture}
+              onPlacedFurnitureChange={setPlacedFurniture}
+              onSessionUpdated={reloadSession}
+            />
+          )}
+
+          {selectedSessionId && <QueryBox sessionId={selectedSessionId} />}
+          {twin && <InspectPanel plane={selectedPlane} sceneGraph={twin.scene_graph} />}
+        </aside>
+
+        {/* 3D Digital Twin Viewport */}
+        <main className="viewer">
+          {twin?.provenance.input_type === "synthetic" && (
+            <div className="synthetic-banner">synthetic input — not physical-camera footage</div>
+          )}
+
+          {/* Floating Glassmorphism Layer Controls */}
+          <div className="toggles-pill-bar">
+            <label className="toggle-chip">
+              <input type="checkbox" checked={toggles.pointCloud} onChange={() => toggle("pointCloud")} />
+              <span>Point Cloud</span>
+            </label>
+            <label className="toggle-chip">
+              <input type="checkbox" checked={toggles.geometry} onChange={() => toggle("geometry")} />
+              <span>Planes</span>
+            </label>
+            <label className="toggle-chip">
+              <input type="checkbox" checked={toggles.furniture ?? true} onChange={() => toggle("furniture" as any)} />
+              <span>Furniture</span>
+            </label>
+            <label className="toggle-chip desktop-only">
+              <input type="checkbox" checked={toggles.cameras} onChange={() => toggle("cameras")} />
+              <span>Cameras</span>
+            </label>
+          </div>
+
+          {error && <div className="viewer-error-toast">{error}</div>}
+
+          {selectedSessionId && twin ? (
+            hasGeometry(twin) ? (
+              <>
+                {notice && <p className="session-notice">{notice}</p>}
+                <Viewer3D
+                  sessionId={selectedSessionId}
+                  twin={twin}
+                  toggles={toggles}
+                  selectedPlaneId={selectedPlaneId}
+                  onSelectPlane={setSelectedPlaneId}
+                  placedFurniture={placedFurniture}
+                />
+              </>
+            ) : (
+              <div className="session-notice session-notice-block" role="status">
+                <p>
+                  <strong>{selectedSessionId}</strong>: {notice ?? "no geometry"}
+                </p>
+                <ul className="stage-list">
+                  {stageStatus.map(([stage, status]) => (
+                    <li key={stage} className={`stage-${status}`}>
+                      {stage}: {status}
+                    </li>
+                  ))}
+                </ul>
+                {twin.provenance.live && (
+                  <p className="muted">
+                    live session: {twin.provenance.frames ?? "?"} frames, {twin.provenance.keyframes ?? 0} keyframes,{" "}
+                    {twin.provenance.map_size ?? 0} map points.
+                  </p>
+                )}
+              </div>
+            )
+          ) : (
+            <div className="empty-viewport-placeholder">
+              <div className="placeholder-icon">📐</div>
+              <h3>No Space Selected</h3>
+              <p>Select a digital twin from Spaces or start a Live AR Scan.</p>
+              <div className="placeholder-actions">
+                <button type="button" className="primary-pill-btn" onClick={() => navigate({ kind: "live" })}>
+                  ▶ Start Live Scan
+                </button>
+                <button type="button" className="secondary-pill-btn" onClick={() => setSidebarOpen(true)}>
+                  📁 View Saved Spaces
+                </button>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* Floating Bottom Nav for Mobile */}
+      <nav className="mobile-bottom-dock">
+        <button
+          type="button"
+          className={`dock-btn ${sidebarOpen ? "active" : ""}`}
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+        >
+          📁 <span className="dock-label">Spaces</span>
+        </button>
+        <button
+          type="button"
+          className="dock-btn live-dock-btn"
+          onClick={() => navigate({ kind: "live" })}
+        >
+          📹 <span className="dock-label">Live Scan</span>
+        </button>
+      </nav>
 
       {twin && <ProvenanceFooter provenance={twin.provenance} />}
     </div>

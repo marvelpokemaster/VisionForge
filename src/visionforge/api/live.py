@@ -116,9 +116,12 @@ async def live_socket(ws: WebSocket, session_id: str):
                 data, idx, ts = latest.pop("frame")
                 try:
                     status = await loop.run_in_executor(None, session.feed, data, idx, ts)
-                except ValueError as exc:
+                except Exception as exc:
                     status = {"session_id": session_id, "frame_index": idx, "error": str(exc)}
-                await ws.send_json(status)
+                try:
+                    await ws.send_json(status)
+                except Exception:
+                    break
             idle.set()
 
     worker_task = asyncio.create_task(worker())

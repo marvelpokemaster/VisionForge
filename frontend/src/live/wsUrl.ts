@@ -33,8 +33,8 @@ export function liveCloudUrl(apiBase: string, sessionId: string): string {
 
 /** The two above, against the backend currently in effect (default or the
  * runtime override) -- what the Live screen actually connects to. */
-export function currentLiveSocketUrl(sessionId: string, loc: LocationLike): string {
-  return liveSocketUrl(apiBase(), sessionId, loc, readAuthToken());
+export function currentLiveSocketUrl(sessionId: string, loc: LocationLike, token?: string | null): string {
+  return liveSocketUrl(apiBase(), sessionId, loc, token !== undefined ? token : readAuthToken());
 }
 
 export function currentLiveCloudUrl(sessionId: string): string {
