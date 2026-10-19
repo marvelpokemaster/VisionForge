@@ -14,7 +14,7 @@ export default function AuthPanel({ onAuthChange }: Props) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   const onAuthChangeRef = useRef(onAuthChange);
   useEffect(() => {
@@ -136,60 +136,7 @@ export default function AuthPanel({ onAuthChange }: Props) {
       )}
 
       {expanded && !user && (
-        <form onSubmit={handleAuth} style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
-          <div style={{ display: "flex", gap: "4px", marginBottom: "4px" }}>
-            <button
-              type="button"
-              className="small"
-              onClick={() => { setMode("signin"); setErrorMsg(null); }}
-              style={{ flex: 1, opacity: mode === "signin" ? 1 : 0.6 }}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              className="small"
-              onClick={() => { setMode("signup"); setErrorMsg(null); }}
-              style={{ flex: 1, opacity: mode === "signup" ? 1 : 0.6 }}
-            >
-              Sign Up
-            </button>
-          </div>
-
-          <input
-            type="email"
-            placeholder="Email address"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            disabled={loading}
-            autoCapitalize="off"
-            spellCheck={false}
-            style={{ fontSize: "0.85em", padding: "4px" }}
-          />
-
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={loading}
-            style={{ fontSize: "0.85em", padding: "4px" }}
-          />
-
-          {errorMsg && (
-            <div style={{ color: "#f44336", fontSize: "0.75em" }}>{errorMsg}</div>
-          )}
-
-          <button type="submit" disabled={loading} style={{ marginTop: "2px" }}>
-            {loading ? "Processing…" : mode === "signin" ? "Sign In" : "Create Account"}
-          </button>
-
-          <div style={{ display: "flex", alignItems: "center", margin: "6px 0", gap: "8px" }}>
-            <hr style={{ flex: 1, border: "none", borderTop: "1px solid #333" }} />
-            <span style={{ fontSize: "0.75em", color: "#888" }}>or</span>
-            <hr style={{ flex: 1, border: "none", borderTop: "1px solid #333" }} />
-          </div>
-
+        <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "8px" }}>
           <button
             type="button"
             onClick={handleGoogleSignIn}
@@ -198,18 +145,20 @@ export default function AuthPanel({ onAuthChange }: Props) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              gap: "8px",
+              gap: "10px",
               background: "#ffffff",
-              color: "#1f2937",
+              color: "#111827",
               fontWeight: 600,
-              padding: "6px 12px",
-              borderRadius: "6px",
-              fontSize: "0.85em",
+              padding: "9px 14px",
+              borderRadius: "8px",
+              fontSize: "0.9em",
               border: "1px solid #d1d5db",
-              cursor: "pointer"
+              cursor: "pointer",
+              boxShadow: "0 1px 2px rgba(0, 0, 0, 0.05)",
+              width: "100%",
             }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24">
+            <svg width="18" height="18" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
               <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
               <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
@@ -217,7 +166,62 @@ export default function AuthPanel({ onAuthChange }: Props) {
             </svg>
             Continue with Google
           </button>
-        </form>
+
+          <div style={{ display: "flex", alignItems: "center", margin: "2px 0", gap: "8px" }}>
+            <hr style={{ flex: 1, border: "none", borderTop: "1px solid #333" }} />
+            <span style={{ fontSize: "0.75em", color: "#888" }}>or email and password</span>
+            <hr style={{ flex: 1, border: "none", borderTop: "1px solid #333" }} />
+          </div>
+
+          <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            <div style={{ display: "flex", gap: "4px", marginBottom: "4px" }}>
+              <button
+                type="button"
+                className="small"
+                onClick={() => { setMode("signin"); setErrorMsg(null); }}
+                style={{ flex: 1, opacity: mode === "signin" ? 1 : 0.6 }}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                className="small"
+                onClick={() => { setMode("signup"); setErrorMsg(null); }}
+                style={{ flex: 1, opacity: mode === "signup" ? 1 : 0.6 }}
+              >
+                Sign Up
+              </button>
+            </div>
+
+            <input
+              type="email"
+              placeholder="Email address"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+              autoCapitalize="off"
+              spellCheck={false}
+              style={{ fontSize: "0.85em", padding: "6px" }}
+            />
+
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+              style={{ fontSize: "0.85em", padding: "6px" }}
+            />
+
+            {errorMsg && (
+              <div style={{ color: "#f44336", fontSize: "0.75em" }}>{errorMsg}</div>
+            )}
+
+            <button type="submit" disabled={loading} style={{ marginTop: "2px" }}>
+              {loading ? "Processing…" : mode === "signin" ? "Sign In" : "Create Account"}
+            </button>
+          </form>
+        </div>
       )}
     </div>
   );

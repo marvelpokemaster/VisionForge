@@ -15,6 +15,8 @@ import AuthPanel from "./components/AuthPanel";
 import type { PlacedFurniture } from "./types/furniture";
 import { useRoute } from "./lib/useRoute";
 import { navigate } from "./lib/route";
+import { getCurrentUser, getSupabaseClient } from "./lib/supabase";
+import type { User } from "@supabase/supabase-js";
 
 export default function App() {
   const route = useRoute();
@@ -24,6 +26,7 @@ export default function App() {
 
 function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
   const backend = useApiBase();
+  const [user, setUser] = useState<User | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(routeSessionId);
   const [twin, setTwin] = useState<Twin | null>(null);
@@ -34,6 +37,18 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
   const [placedFurniture, setPlacedFurniture] = useState<PlacedFurniture[]>([]);
   const [reloadTrigger, setReloadTrigger] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    void getCurrentUser().then((u) => setUser(u));
+    const c = getSupabaseClient();
+    if (!c) return;
+    const { data: listener } = c.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => {
+      listener.subscription.unsubscribe();
+    };
+  }, []);
 
   const reloadSession = useCallback(() => {
     setReloadTrigger((n) => n + 1);
@@ -127,6 +142,11 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
 
         {/* Right Action Tools */}
         <div className="header-actions">
+          {user && (
+            <span style={{ fontSize: "0.78em", color: "#a1a1aa", padding: "4px 8px", background: "rgba(255,255,255,0.06)", borderRadius: "6px" }} title={user.email}>
+              👤 {user.email?.split("@")[0]}
+            </span>
+          )}
           <button
             type="button"
             className="header-icon-btn mobile-menu-btn"
@@ -233,16 +253,35 @@ function SessionsApp({ routeSessionId }: { routeSessionId: string | null }) {
           ) : (
             <div className="empty-viewport-placeholder">
               <div className="placeholder-icon">📐</div>
-              <h3>No Space Selected</h3>
-              <p>Select a digital twin from Spaces or start a Live AR Scan.</p>
-              <div className="placeholder-actions">
-                <button type="button" className="primary-pill-btn" onClick={() => navigate({ kind: "live" })}>
-                  ▶ Start Live Scan
-                </button>
-                <button type="button" className="secondary-pill-btn" onClick={() => setSidebarOpen(true)}>
-                  📁 View Saved Spaces
-                </button>
-              </div>
+              {!user ? (
+                <>
+                  <h2 style={{ margin: "4px 0 8px", fontSize: "1.3rem" }}>VisionForge</h2>
+                  <p style={{ margin: "0 auto 16px", color: "#9ca3af", fontSize: "0.88rem", maxWidth: "340px" }}>
+                    Real-time 3D spatial reconstruction & digital twins. Sign in to view and save spaces.
+                  </p>
+                  <div style={{ maxWidth: 360, width: "100%", margin: "0 auto 16px", textAlign: "left" }}>
+                    <AuthPanel onAuthChange={(u) => { setUser(u); reloadSession(); }} />
+                  </div>
+                  <div className="placeholder-actions">
+                    <button type="button" className="primary-pill-btn" onClick={() => navigate({ kind: "live" })}>
+                      ▶ Start Live Scan
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h3>No Space Selected</h3>
+                  <p>Select a digital twin from Spaces or start a Live AR Scan.</p>
+                  <div className="placeholder-actions">
+                    <button type="button" className="primary-pill-btn" onClick={() => navigate({ kind: "live" })}>
+                      ▶ Start Live Scan
+                    </button>
+                    <button type="button" className="secondary-pill-btn" onClick={() => setSidebarOpen(true)}>
+                      📁 View Saved Spaces
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </main>
