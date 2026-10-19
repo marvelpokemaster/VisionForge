@@ -274,9 +274,11 @@ export default function LiveScreen() {
       {/* Collapsible Settings Drawer */}
       {showAdvanced && (
         <div className="live-settings-drawer">
-          <div style={{ marginBottom: "12px" }}>
-            <AuthPanel onAuthChange={(u) => setIsAuthenticated(Boolean(u) || Boolean(readAuthToken()))} />
-          </div>
+          {isAuthenticated && (
+            <div style={{ marginBottom: "12px" }}>
+              <AuthPanel onAuthChange={(u) => setIsAuthenticated(Boolean(u) || Boolean(readAuthToken()))} />
+            </div>
+          )}
           <div className="settings-grid">
             <label className="field-group">
               <span className="field-label">Session ID</span>
