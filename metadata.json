@@ -1,0 +1,7 @@
+{
+  "name": "VisionForge - 3D Digital Twin & Spatial Studio",
+  "description": "Interactive 3D digital twin viewer and spatial analysis studio with classical room geometry reconstruction, floor clearance analysis, metric scale calibration, and furniture placement.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
