@@ -18,16 +18,31 @@ android {
     }
     signingConfigs {
         release {
-            def keystorePath = System.getenv("RELEASE_KEYSTORE_PATH") ?: project.findProperty("RELEASE_KEYSTORE_PATH")
+            def defaultKeystore = file("${System.getProperty('user.home')}/.android/visionforge-release.keystore")
+            def keystorePath = System.getenv("RELEASE_KEYSTORE_PATH") ?: (project.findProperty("RELEASE_KEYSTORE_PATH") ?: (defaultKeystore.exists() ? defaultKeystore.absolutePath : null))
             if (keystorePath && file(keystorePath).exists()) {
                 storeFile file(keystorePath)
-                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: project.findProperty("RELEASE_KEYSTORE_PASSWORD") ?: ""
-                keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: project.findProperty("RELEASE_KEY_ALIAS") ?: ""
-                keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: project.findProperty("RELEASE_KEY_PASSWORD") ?: ""
+                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: (project.findProperty("RELEASE_KEYSTORE_PASSWORD") ?: "visionforge_release")
+                keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: (project.findProperty("RELEASE_KEY_ALIAS") ?: "visionforge")
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: (project.findProperty("RELEASE_KEY_PASSWORD") ?: "visionforge_release")
+            }
+        }
+        debug {
+            def defaultKeystore = file("${System.getProperty('user.home')}/.android/visionforge-release.keystore")
+            if (defaultKeystore.exists()) {
+                storeFile defaultKeystore
+                storePassword "visionforge_release"
+                keyAlias "visionforge"
+                keyPassword "visionforge_release"
             }
         }
     }
     buildTypes {
+        debug {
+            if (signingConfigs.debug.storeFile) {
+                signingConfig signingConfigs.debug
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
