@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: visionforge-spatial-api
+    runtime: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    region: singapore
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: VISIONFORGE_PERSISTENCE
+        value: "supabase"
+      - key: SUPABASE_URL
+        value: "https://btpxwlquhjwjqoypqskm.supabase.co"
+      - key: SUPABASE_KEY
+        sync: false
+      - key: VISIONFORGE_REQUIRE_AUTH
+        value: "1"
+      - key: VISIONFORGE_ENV
+        value: "production"
+      - key: VISIONFORGE_CORS_ORIGINS
+        value: "https://visionforge-spatial.web.app,https://visionforge-spatial.firebaseapp.com,capacitor://localhost,http://localhost,http://localhost:5173"

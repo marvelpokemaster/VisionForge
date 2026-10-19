@@ -1,0 +1,173 @@
+{
+  "point_cloud": {
+    "raw_points": 1705,
+    "cleaned_points": 1339,
+    "retention_ratio": 0.7853372434017595,
+    "min_bound": [
+      -16.32963752746582,
+      -6.625224590301514,
+      7.226205110549927
+    ],
+    "max_bound": [
+      5.916888236999512,
+      2.377471446990967,
+      20.84954261779785
+    ],
+    "centroid": [
+      -5.741980483852589,
+      -2.18234270067764,
+      16.47893740617431
+    ],
+    "approx_dimensions": [
+      22.246525764465332,
+      9.00269603729248,
+      13.623337507247925
+    ]
+  },
+  "resolved_thresholds": {
+    "bbox_diagonal": 31.997239204106695,
+    "voxel_size": 0.1599861960205335,
+    "plane_distance_threshold": 0.319972392041067
+  },
+  "geometry": {
+    "num_planes": 3,
+    "classifications": {
+      "floor": 1,
+      "ceiling": 1,
+      "wall": 1,
+      "unknown": 0
+    },
+    "metric_scale_available": false,
+    "up_source": "architectural_planes+manhattan_planes",
+    "up_confidence": 0.5659607705286898,
+    "up_sources": {
+      "camera_gravity": {
+        "vector": [
+          0.08123118900463955,
+          -0.9873549338542661,
+          -0.1361312915039392
+        ],
+        "confidence": 0.9882123293385757,
+        "sample_count": 24,
+        "available": true,
+        "coherence": 0.9842831057847676,
+        "agreement_angle_to_final_deg": 86.22499119742655,
+        "agrees_with_final": false
+      },
+      "architectural_planes": {
+        "vector": [
+          0.9416126039643068,
+          -0.03434474039272032,
+          0.3349419992519813
+        ],
+        "confidence": 0.9159960999087213,
+        "available": true,
+        "reason": "Highest architectural score",
+        "agreement_angle_to_final_deg": 0.3378396008874145,
+        "agrees_with_final": true
+      },
+      "manhattan_planes": {
+        "vector": [
+          0.9369009201500492,
+          -0.03895969062292877,
+          0.3474173402819104
+        ],
+        "confidence": 0.6574615965480044,
+        "pair_count": 1,
+        "available": true,
+        "support_sum": 237.0,
+        "member_indices": [
+          1,
+          2
+        ],
+        "agreement_angle_to_final_deg": 0.47069128607754007,
+        "agrees_with_final": true
+      },
+      "largest_plane_legacy": {
+        "vector": [
+          0.3427706346469715,
+          0.08623172589417508,
+          -0.9354530354181466
+        ],
+        "confidence": 0.8776409849086577,
+        "available": true,
+        "plane_id": "plane_000",
+        "support_share": 0.8117553613979349,
+        "agreement_angle_to_final_deg": 89.95670472521415,
+        "agrees_with_final": false
+      }
+    }
+  },
+  "room_measurements": {
+    "length": 5.5441490251923184,
+    "width": 5.437972561460437,
+    "height": 20.1247146748649,
+    "floor_area": 30.148930275643455,
+    "length_method": "floor_extent",
+    "width_method": "floor_extent",
+    "height_method": "floor_to_ceiling",
+    "floor_area_method": "floor_extent",
+    "bounding_polygon_room": [
+      [
+        -3.3696410692315624,
+        4.090796820511155
+      ],
+      [
+        -3.2690801331737642,
+        -2.153400413816495
+      ],
+      [
+        -2.4629276360326826,
+        -2.5895909188756527
+      ],
+      [
+        -2.1057677686890677,
+        -2.7767006440516924
+      ],
+      [
+        -1.6334586976641658,
+        -2.8302752672393288
+      ],
+      [
+        3.289732860317108,
+        -2.9696524639172894
+      ],
+      [
+        3.483891422234701,
+        -2.849994238449624
+      ],
+      [
+        3.729789583832894,
+        -1.3919361618036783
+      ],
+      [
+        3.50605484969225,
+        4.432181109219169
+      ],
+      [
+        3.495116550176412,
+        4.612551701683445
+      ],
+      [
+        3.4304935847636,
+        5.299525889081248
+      ],
+      [
+        3.344521183604563,
+        5.586150804966
+      ],
+      [
+        -0.8782657764561369,
+        5.690380657553355
+      ],
+      [
+        -2.198229919783325,
+        5.48679236642263
+      ],
+      [
+        -2.997441618743641,
+        4.670586363434206
+      ]
+    ]
+  }
+}

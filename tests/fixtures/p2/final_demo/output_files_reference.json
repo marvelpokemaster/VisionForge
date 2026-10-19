@@ -1,0 +1,11 @@
+[
+  "planes/plane_000.ply",
+  "planes/plane_001.ply",
+  "planes/plane_002.ply",
+  "pointcloud/cleaned.ply",
+  "pointcloud/raw.ply",
+  "room_model.json",
+  "statistics.json",
+  "visualizations/coordinate_frame.ply",
+  "visualizations/detected_planes.ply"
+]

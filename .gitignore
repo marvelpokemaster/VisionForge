@@ -20,16 +20,26 @@ data/skills/
 skills-lock.json
 
 # Frontend
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-frontend/*.tsbuildinfo
-frontend/vite.config.js
-frontend/vite.config.d.ts
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
 
 # Android Studio project files (machine-specific)
-frontend/android/.idea/
+android/.idea/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+
+# Release APK artifacts
+VisionForge-v*.apk
+VisionForge-v*.apk.sha256
 
 # Firebase local cache
 .firebase/
+
 

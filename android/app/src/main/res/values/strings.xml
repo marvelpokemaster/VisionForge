@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">VisionForge</string>
+    <string name="title_activity_main">VisionForge</string>
+    <string name="package_name">com.visionforge.app</string>
+    <string name="custom_url_scheme">com.visionforge.app</string>
+</resources>
