@@ -42,4 +42,7 @@ VisionForge-v*.apk.sha256
 # Firebase local cache
 .firebase/
 
-
+# Vercel
+.vercel/
+.env.local
+.env.*.local

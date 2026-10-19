@@ -1,0 +1,24 @@
+# Python Backend (Hosted on Render)
+requirements.txt
+pytest.ini
+src/visionforge/
+tests/
+venv/
+Dockerfile
+render.yaml
+.pytest_cache/
+
+# Native Android
+android/
+*.apk
+*.apk.sha256
+
+# Large Data & Outputs
+data/
+outputs/
+docs/
+agent/
+scripts/
+.claude/
+.agents/
+.aistudio/
