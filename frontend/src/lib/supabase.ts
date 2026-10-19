@@ -78,6 +78,37 @@ export async function signUpWithEmail(email: string, password: string): Promise<
 export async function signInWithGoogle(): Promise<{ error: Error | null }> {
   const c = getSupabaseClient();
   if (!c) return { error: new Error("Supabase client not initialized") };
+
+  // If running inside Android app with native Google Play Services:
+  if (typeof (window as any).AndroidGoogleAuth?.launchGoogleSignIn === "function") {
+    return new Promise((resolve) => {
+      (window as any).onGoogleNativeSuccess = async (idToken: string) => {
+        try {
+          const { data, error } = await c.auth.signInWithIdToken({
+            provider: "google",
+            token: idToken,
+          });
+          if (error) {
+            resolve({ error: new Error(error.message) });
+          } else {
+            if (data.session?.access_token) {
+              setAuthToken(data.session.access_token);
+            }
+            resolve({ error: null });
+          }
+        } catch (err) {
+          resolve({ error: err instanceof Error ? err : new Error(String(err)) });
+        }
+      };
+
+      (window as any).onGoogleNativeError = (errMsg: string) => {
+        resolve({ error: new Error(errMsg) });
+      };
+
+      (window as any).AndroidGoogleAuth.launchGoogleSignIn();
+    });
+  }
+
   const redirectTo = window.location.origin;
   const { error } = await c.auth.signInWithOAuth({
     provider: "google",

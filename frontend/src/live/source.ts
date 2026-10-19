@@ -20,7 +20,7 @@ export interface FrameSource {
   readonly ended: boolean;
   start(): Promise<FrameSize>;
   frame(): HTMLVideoElement | null;
-  stop(): void;
+  stop(keepStream?: boolean): void;
 }
 
 function waitForVideoSize(video: HTMLVideoElement, timeoutMs = 10000): Promise<FrameSize> {
@@ -57,6 +57,13 @@ export class CameraSource implements FrameSource {
   constructor(readonly video: HTMLVideoElement) {}
 
   async start(): Promise<FrameSize> {
+    if (this.video.srcObject instanceof MediaStream && this.video.srcObject.active) {
+      this.stream = this.video.srcObject;
+      this.video.muted = true;
+      this.video.playsInline = true;
+      await this.video.play().catch(() => {});
+      return waitForVideoSize(this.video);
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error("getUserMedia is not available in this browser/WebView (needs a secure context: https or localhost)");
     }
@@ -75,10 +82,12 @@ export class CameraSource implements FrameSource {
     return this.video.readyState >= 2 && this.video.videoWidth > 0 ? this.video : null;
   }
 
-  stop(): void {
-    this.stream?.getTracks().forEach((t) => t.stop());
-    this.stream = null;
-    this.video.srcObject = null;
+  stop(keepStream = false): void {
+    if (!keepStream) {
+      this.stream?.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+      this.video.srcObject = null;
+    }
   }
 }
 
