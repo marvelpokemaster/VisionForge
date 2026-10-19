@@ -1825,4 +1825,99 @@ body,
   color: var(--text-crisp);
 }
 
+/* ==========================================================================
+   Mobile Responsive Layout (Phone Portrait & Compact Screens)
+   ========================================================================== */
+
+@media (max-width: 900px) {
+  .studio-navbar {
+    height: auto;
+    padding: 8px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .navbar-left {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .brand-tag {
+    display: none;
+  }
+
+  .active-room-dropdown-wrapper {
+    max-width: 170px;
+    padding: 3px 8px;
+  }
+
+  .room-select-dropdown {
+    font-size: 11px;
+    max-width: 130px;
+  }
+
+  .navbar-tabs {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    -webkit-overflow-scrolling: touch;
+    gap: 2px;
+  }
+
+  .nav-tab {
+    padding: 5px 10px;
+    font-size: 11px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .navbar-right {
+    flex: 0 0 auto;
+    gap: 4px;
+  }
+
+  .navbar-action-btn {
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+
+  .studio-main-stage {
+    flex-direction: column;
+    height: calc(100vh - 96px);
+  }
+
+  .viewer-viewport-pane {
+    height: 52%;
+    flex: none;
+  }
+
+  .studio-dock {
+    width: 100%;
+    height: 48%;
+    border-left: none;
+    border-top: 1px solid var(--border-hairline);
+    padding: 12px;
+  }
+
+  .camera-hud {
+    top: 8px;
+    left: 8px;
+    gap: 2px;
+  }
+
+  .camera-btn {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  .layer-toggles-hud {
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    overflow-x: auto;
+  }
+}
+
 
