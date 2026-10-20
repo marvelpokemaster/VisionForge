@@ -298,16 +298,19 @@ export function standaloneSaveFurnitureLayout(
   placedItems: PlacedFurniture[],
   packSpacing = 0.3
 ): { status: string; session_id: string } {
-  localStorage.setItem(
-    `visionforge.layout.${sessionId}`,
-    JSON.stringify({ placed_items: placedItems, pack_spacing: packSpacing })
-  );
+  if (typeof localStorage !== "undefined" && localStorage) {
+    localStorage.setItem(
+      `visionforge.layout.${sessionId}`,
+      JSON.stringify({ placed_items: placedItems, pack_spacing: packSpacing })
+    );
+  }
   return { status: "saved", session_id: sessionId };
 }
 
 export function standaloneFetchFurnitureLayout(
   sessionId: string
 ): { placedItems: PlacedFurniture[]; packSpacing: number } | null {
+  if (typeof localStorage === "undefined" || !localStorage) return null;
   const raw = localStorage.getItem(`visionforge.layout.${sessionId}`);
   if (!raw) return null;
   try {

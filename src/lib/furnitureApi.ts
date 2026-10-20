@@ -59,9 +59,15 @@ export async function validateFurniturePlacement(
         custom_width: item.custom_width,
       }),
     });
-    if (!res.ok) throw new Error("remote validation failed");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Validation request failed: ${res.statusText}`);
+    }
     return await res.json();
-  } catch {
+  } catch (err: any) {
+    if (err?.message && !err.message.includes("failed to fetch") && !err.message.includes("Failed to fetch") && !err.message.includes("NetworkError") && !err.message.includes("fetch failed")) {
+      throw err;
+    }
     return standaloneValidatePlacement(sessionId, item, placedItems);
   }
 }
@@ -85,9 +91,15 @@ export async function autoPackFurniture(
         max_items: maxItems,
       }),
     });
-    if (!res.ok) throw new Error("remote auto pack failed");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Auto pack request failed: ${res.statusText}`);
+    }
     return await res.json();
-  } catch {
+  } catch (err: any) {
+    if (err?.message && !err.message.includes("failed to fetch") && !err.message.includes("Failed to fetch") && !err.message.includes("NetworkError") && !err.message.includes("fetch failed")) {
+      throw err;
+    }
     return standaloneAutoPack(sessionId, furnitureId, spacing, maxItems);
   }
 }
@@ -109,9 +121,15 @@ export async function calibrateScale(
         known_distance_meters: knownDistanceMeters,
       }),
     });
-    if (!res.ok) throw new Error("remote calibration failed");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Calibration failed: ${res.statusText}`);
+    }
     return await res.json();
-  } catch {
+  } catch (err: any) {
+    if (err?.message && !err.message.includes("failed to fetch") && !err.message.includes("Failed to fetch") && !err.message.includes("NetworkError") && !err.message.includes("fetch failed")) {
+      throw err;
+    }
     return standaloneCalibrateScale(sessionId, referenceType, knownDistanceMeters);
   }
 }
@@ -166,9 +184,15 @@ export async function saveFurnitureLayout(
       },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error("remote save layout failed");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Save layout failed: ${res.statusText}`);
+    }
     return await res.json();
-  } catch {
+  } catch (err: any) {
+    if (err?.message && !err.message.includes("failed to fetch") && !err.message.includes("Failed to fetch") && !err.message.includes("NetworkError") && !err.message.includes("fetch failed")) {
+      throw err;
+    }
     return standaloneSaveFurnitureLayout(sessionId, placedItems, packSpacing);
   }
 }
@@ -183,9 +207,12 @@ export async function fetchFurnitureLayout(
       },
     });
     if (res.status === 404) {
-      return standaloneFetchFurnitureLayout(sessionId);
+      return null;
     }
-    if (!res.ok) throw new Error("remote fetch layout failed");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `Fetch layout failed: ${res.statusText}`);
+    }
     const data = await res.json();
     const rawItems = data.placed_items || [];
     const placedItems: PlacedFurniture[] = rawItems.map((item: any) => ({
@@ -206,7 +233,10 @@ export async function fetchFurnitureLayout(
       placedItems,
       packSpacing: data.pack_spacing ?? 0.2,
     };
-  } catch {
+  } catch (err: any) {
+    if (err?.message && !err.message.includes("failed to fetch") && !err.message.includes("Failed to fetch") && !err.message.includes("NetworkError") && !err.message.includes("fetch failed")) {
+      throw err;
+    }
     return standaloneFetchFurnitureLayout(sessionId);
   }
 }
