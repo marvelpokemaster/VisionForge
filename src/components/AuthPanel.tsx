@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { getCurrentUser, signInWithEmail, signOut, signUpWithEmail, getSupabaseClient } from "../lib/supabase";
+import {
+  getCurrentUser,
+  signInWithEmail,
+  signOut,
+  signUpWithEmail,
+  getSupabaseClient,
+  SUPABASE_URL,
+} from "../lib/supabase";
 
 interface Props {
   onAuthChange?: (user: User | null) => void;
@@ -56,7 +63,7 @@ export default function AuthPanel({ onAuthChange }: Props) {
           setErrorMsg(error.message);
         } else {
           setUser(u);
-          setSuccessMsg("Signed in successfully!");
+          setSuccessMsg("Signed in successfully to Supabase!");
           setPassword("");
           setExpanded(false);
         }
@@ -82,7 +89,7 @@ export default function AuthPanel({ onAuthChange }: Props) {
     try {
       await signOut();
       setUser(null);
-      setSuccessMsg("Signed out.");
+      setSuccessMsg("Signed out from Supabase.");
     } catch (err) {
       setErrorMsg(String(err));
     } finally {
@@ -90,79 +97,116 @@ export default function AuthPanel({ onAuthChange }: Props) {
     }
   }
 
+  const projectId = SUPABASE_URL.replace("https://", "").split(".")[0];
+
   return (
-    <div className="auth-panel" style={{ borderBottom: "1px solid #333", paddingBottom: "8px", marginBottom: "8px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: "0.85em", fontWeight: 600 }}>
-          {user ? `👤 ${user.email}` : "🔒 Cloud Auth"}
-        </span>
+    <div className="supabase-cloud-card">
+      <div className="supabase-card-header">
+        <div className="supabase-header-left">
+          <span className="supabase-dot-pulse" />
+          <div>
+            <div className="supabase-title">Supabase Cloud</div>
+            <div className="supabase-subtitle">Project: <code>{projectId}</code> (Active)</div>
+          </div>
+        </div>
         {user ? (
-          <button type="button" className="small" onClick={handleSignOut} disabled={loading}>
+          <button
+            type="button"
+            className="supabase-btn-ghost"
+            onClick={handleSignOut}
+            disabled={loading}
+          >
             Sign Out
           </button>
         ) : (
           <button
             type="button"
-            className="small"
+            className="supabase-btn-action"
             onClick={() => setExpanded(!expanded)}
-            style={{ fontSize: "0.8em" }}
           >
             {expanded ? "Cancel" : "Sign In / Up"}
           </button>
         )}
       </div>
 
+      <div className="supabase-features-badges">
+        <span className="supabase-badge">✓ PostgreSQL RLS</span>
+        <span className="supabase-badge">✓ Storage Bucket</span>
+        <span className="supabase-badge">✓ JWT Auth</span>
+      </div>
+
+      {user ? (
+        <div className="supabase-authenticated-box">
+          <div className="supabase-user-email">
+            <span className="user-icon">👤</span> {user.email}
+          </div>
+          <div className="supabase-user-note">
+            Your room scans, 3D measurements, and furniture layouts are automatically synchronized to your private cloud storage.
+          </div>
+        </div>
+      ) : (
+        <div className="supabase-guest-box">
+          <p className="supabase-guest-note">
+            Currently running in <strong>Local Demo Mode</strong>. Sign in or create an account to persist custom rooms and furniture placements to your Supabase project.
+          </p>
+        </div>
+      )}
+
       {successMsg && !expanded && (
-        <div style={{ color: "#4caf50", fontSize: "0.75em", marginTop: "4px" }}>{successMsg}</div>
+        <div className="supabase-alert-success">{successMsg}</div>
       )}
 
       {expanded && !user && (
-        <form onSubmit={handleAuth} style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" }}>
-          <div style={{ display: "flex", gap: "4px", marginBottom: "4px" }}>
+        <form onSubmit={handleAuth} className="supabase-form">
+          <div className="supabase-tabs">
             <button
               type="button"
-              className="small"
+              className={`supabase-tab ${mode === "signin" ? "active" : ""}`}
               onClick={() => { setMode("signin"); setErrorMsg(null); }}
-              style={{ flex: 1, opacity: mode === "signin" ? 1 : 0.6 }}
             >
               Sign In
             </button>
             <button
               type="button"
-              className="small"
+              className={`supabase-tab ${mode === "signup" ? "active" : ""}`}
               onClick={() => { setMode("signup"); setErrorMsg(null); }}
-              style={{ flex: 1, opacity: mode === "signup" ? 1 : 0.6 }}
             >
-              Sign Up
+              Create Account
             </button>
           </div>
 
-          <input
-            type="email"
-            placeholder="Email address"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            disabled={loading}
-            autoCapitalize="off"
-            spellCheck={false}
-            style={{ fontSize: "0.85em", padding: "4px" }}
-          />
+          <div className="supabase-input-group">
+            <label>Email</label>
+            <input
+              type="email"
+              placeholder="user@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={loading}
+              autoCapitalize="off"
+              spellCheck={false}
+              className="supabase-input"
+            />
+          </div>
 
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={loading}
-            style={{ fontSize: "0.85em", padding: "4px" }}
-          />
+          <div className="supabase-input-group">
+            <label>Password</label>
+            <input
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={loading}
+              className="supabase-input"
+            />
+          </div>
 
           {errorMsg && (
-            <div style={{ color: "#f44336", fontSize: "0.75em" }}>{errorMsg}</div>
+            <div className="supabase-alert-error">{errorMsg}</div>
           )}
 
-          <button type="submit" disabled={loading} style={{ marginTop: "2px" }}>
-            {loading ? "Processing…" : mode === "signin" ? "Sign In" : "Create Account"}
+          <button type="submit" disabled={loading} className="supabase-submit-btn">
+            {loading ? "Connecting to Supabase…" : mode === "signin" ? "Sign In to Supabase" : "Create Supabase Account"}
           </button>
         </form>
       )}

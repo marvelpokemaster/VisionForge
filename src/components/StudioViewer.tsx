@@ -18,15 +18,18 @@ import {
   createCeilingMaterial,
   createFurnitureBoxMaterial,
 } from "../lib/studioMaterials";
+import { buildArchitecturalRoomShell, computeRoomBounds } from "../lib/roomShell";
 import CameraControlsHUD, { type CameraPreset } from "./CameraControlsHUD";
 
 export interface StudioToggles {
+  roomShell: boolean;
+  woodFloor: boolean;
+  rawPlanes: boolean;
   pointCloud: boolean;
-  geometry: boolean;
+  furniture: boolean;
   labels: boolean;
   cameras: boolean;
-  furniture: boolean;
-  woodFloor: boolean;
+  geometry: boolean;
 }
 
 export interface StudioViewerRef {
@@ -48,12 +51,14 @@ interface Props {
 }
 
 const DEFAULT_TOGGLES: StudioToggles = {
+  roomShell: true,
+  woodFloor: true,
+  rawPlanes: false,
   pointCloud: true,
-  geometry: true,
+  furniture: true,
   labels: true,
   cameras: false,
-  furniture: true,
-  woodFloor: true,
+  geometry: false,
 };
 
 const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
@@ -93,16 +98,17 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
   const cameraAnimTarget = useRef<{
     pos: THREE.Vector3;
     target: THREE.Vector3;
+    up?: THREE.Vector3;
   } | null>(null);
 
   // Scene subgroups
   const groupsRef = useRef<{
     pointCloud: THREE.Group;
+    roomShell: THREE.Group;
     planes: THREE.Group;
     woodFloor: THREE.Group;
     labels: THREE.Group;
     intersections: THREE.Group;
-    boundingPolygon: THREE.Group;
     cameras: THREE.Group;
     furniture: THREE.Group;
   } | null>(null);
@@ -161,24 +167,48 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
     (preset: CameraPreset) => {
       setActivePreset(preset);
 
-      const roomL = twin.room_model?.room?.length ?? 5.0;
-      const roomW = twin.room_model?.room?.width ?? 4.0;
-      const maxDim = Math.max(roomL, roomW, 4.0);
+      const bounds = computeRoomBounds(twin.room_model);
+      const { centerX, centerZ, sizeX, sizeZ, maxDim } = bounds;
 
       let pos: THREE.Vector3;
-      let target = new THREE.Vector3(0, 0.8, 0);
+      let target = new THREE.Vector3(centerX, 0.7, centerZ);
+      let up = new THREE.Vector3(0, 1, 0);
 
       if (preset === "isometric") {
-        pos = new THREE.Vector3(maxDim * 1.1, maxDim * 1.1, maxDim * 1.1);
+        // 3D Dollhouse: 42° overhead perspective with cutaway view
+        pos = new THREE.Vector3(
+          centerX + maxDim * 1.05,
+          maxDim * 0.95,
+          centerZ + maxDim * 1.05
+        );
+        target = new THREE.Vector3(centerX, 0.6, centerZ);
+        up = new THREE.Vector3(0, 1, 0);
       } else if (preset === "topdown") {
-        pos = new THREE.Vector3(0, maxDim * 2.2, 0.01);
-        target = new THREE.Vector3(0, 0, 0);
+        // 2D Blueprint: Looking directly down along -Y with up pointing towards -Z
+        pos = new THREE.Vector3(centerX, maxDim * 1.85, centerZ + 0.0001);
+        target = new THREE.Vector3(centerX, 0, centerZ);
+        up = new THREE.Vector3(0, 0, -1);
+      } else if (preset === "eyelevel") {
+        // Inside Room: Standing inside at entrance/corner looking across the room
+        pos = new THREE.Vector3(
+          centerX - sizeX * 0.32,
+          1.55,
+          centerZ + sizeZ * 0.36
+        );
+        target = new THREE.Vector3(
+          centerX + sizeX * 0.05,
+          1.15,
+          centerZ - sizeZ * 0.08
+        );
+        up = new THREE.Vector3(0, 1, 0);
       } else {
-        pos = new THREE.Vector3(0, 1.4, maxDim * 0.85);
-        target = new THREE.Vector3(0, 1.1, 0);
+        // Front Elevation: Straight-on cross section cutaway
+        pos = new THREE.Vector3(centerX, 1.5, centerZ + maxDim * 1.35);
+        target = new THREE.Vector3(centerX, 1.1, centerZ);
+        up = new THREE.Vector3(0, 1, 0);
       }
 
-      cameraAnimTarget.current = { pos, target };
+      cameraAnimTarget.current = { pos, target, up };
     },
     [twin]
   );
@@ -188,18 +218,26 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
     const container = containerRef.current;
     if (!container) return;
 
+    const bounds = computeRoomBounds(twin.room_model);
+
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0e1117);
     scene.fog = new THREE.FogExp2(0x0e1117, 0.025);
     sceneRef.current = scene;
 
     const camera = new THREE.PerspectiveCamera(
-      55,
+      52,
       container.clientWidth / container.clientHeight,
       0.05,
       1000
     );
-    camera.position.set(6, 6, 6);
+    // Initial dollhouse view position
+    camera.position.set(
+      bounds.centerX + bounds.maxDim * 1.05,
+      bounds.maxDim * 0.95,
+      bounds.centerZ + bounds.maxDim * 1.05
+    );
+    camera.lookAt(bounds.centerX, 0.6, bounds.centerZ);
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({
@@ -218,11 +256,13 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
     controls.maxPolarAngle = Math.PI / 2 + 0.05;
+    controls.target.set(bounds.centerX, 0.6, bounds.centerZ);
     controlsRef.current = controls;
 
     controls.addEventListener("start", () => {
       cameraAnimTarget.current = null;
       setActivePreset(null);
+      camera.up.set(0, 1, 0);
     });
 
     // Interactive 3D TransformControls (Gizmo)
@@ -315,7 +355,7 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
     });
 
     // Three-point warm studio lighting
-    const ambientLight = new THREE.AmbientLight(0xfff5ea, 0.55);
+    const ambientLight = new THREE.AmbientLight(0xfff5ea, 0.6);
     scene.add(ambientLight);
 
     const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x1b202c, 0.65);
@@ -333,17 +373,18 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
     fillLight.position.set(-8, 6, -6);
     scene.add(fillLight);
 
+    // Subtle studio pedestal grid
     const grid = new THREE.GridHelper(24, 24, 0x2e384d, 0x171c26);
     grid.position.y = -0.005;
     scene.add(grid);
 
     const groups = {
       pointCloud: new THREE.Group(),
+      roomShell: new THREE.Group(),
       planes: new THREE.Group(),
       woodFloor: new THREE.Group(),
       labels: new THREE.Group(),
       intersections: new THREE.Group(),
-      boundingPolygon: new THREE.Group(),
       cameras: new THREE.Group(),
       furniture: new THREE.Group(),
     };
@@ -404,11 +445,17 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
       if (cameraAnimTarget.current) {
         camera.position.lerp(cameraAnimTarget.current.pos, 0.08);
         controls.target.lerp(cameraAnimTarget.current.target, 0.08);
+        if (cameraAnimTarget.current.up) {
+          camera.up.lerp(cameraAnimTarget.current.up, 0.08);
+        }
 
         if (
           camera.position.distanceTo(cameraAnimTarget.current.pos) < 0.05 &&
           controls.target.distanceTo(cameraAnimTarget.current.target) < 0.05
         ) {
+          if (cameraAnimTarget.current.up) {
+            camera.up.copy(cameraAnimTarget.current.up);
+          }
           cameraAnimTarget.current = null;
         }
       }
@@ -449,6 +496,17 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
     const roomModel = twin.room_model;
     const coordSystem = roomModel?.coordinate_system ?? null;
 
+    // 1. Build Complete Architectural Room Shell (Walls, Hardwood Floor, Baseboards, Dimension Annotations)
+    if (roomModel) {
+      const roomShell = buildArchitecturalRoomShell(roomModel, {
+        cutawayFront: true,
+        wallHeight: 2.6,
+        showDimensions: toggles.labels,
+      });
+      groups.roomShell.add(roomShell);
+    }
+
+    // 2. Build Raw Mathematical SfM Detection Planes (for inspection)
     if (roomModel && Array.isArray(roomModel.planes)) {
       for (const plane of roomModel.planes) {
         const boundary = plane.boundary_room ?? plane.boundary;
@@ -512,6 +570,7 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
       }
     }
 
+    // 3. Build Camera Frustums
     if (twin.scene_graph && coordSystem) {
       const camerasByName = new Map<string, CameraPose>(
         (twin.cameras ?? []).map((c) => [c.name, c])
@@ -546,6 +605,7 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
       }
     }
 
+    // 4. Load Sparse 3D Point Cloud
     if (coordSystem) {
       const loader = new PLYLoader();
       const plyTargetUrl = cloudUrl(sessionId);
@@ -575,7 +635,7 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
         () => {}
       );
     }
-  }, [sessionId, twin, selectedPlaneId]);
+  }, [sessionId, twin, selectedPlaneId, toggles.labels]);
 
   // Render 3D furniture models & wire up meshes for TransformControls
   useEffect(() => {
@@ -636,8 +696,9 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
     if (!groups) return;
 
     groups.pointCloud.visible = toggles.pointCloud;
-    groups.planes.visible = toggles.geometry;
-    groups.woodFloor.visible = toggles.woodFloor && toggles.geometry;
+    groups.roomShell.visible = toggles.roomShell;
+    groups.planes.visible = toggles.rawPlanes || toggles.geometry;
+    groups.woodFloor.visible = toggles.woodFloor;
     groups.labels.visible = toggles.labels;
     groups.cameras.visible = toggles.cameras;
     groups.furniture.visible = toggles.furniture;
@@ -694,6 +755,14 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
 
       {/* Floating Layer Controls */}
       <div className="studio-layer-toggles">
+        <label className={`toggle-pill ${toggles.roomShell ? "active" : ""}`}>
+          <input
+            type="checkbox"
+            checked={toggles.roomShell}
+            onChange={() => handleToggle("roomShell")}
+          />
+          Room Shell
+        </label>
         <label className={`toggle-pill ${toggles.woodFloor ? "active" : ""}`}>
           <input
             type="checkbox"
@@ -710,13 +779,13 @@ const StudioViewer = forwardRef<StudioViewerRef, Props>(function StudioViewer(
           />
           Point Cloud
         </label>
-        <label className={`toggle-pill ${toggles.geometry ? "active" : ""}`}>
+        <label className={`toggle-pill ${toggles.rawPlanes ? "active" : ""}`}>
           <input
             type="checkbox"
-            checked={toggles.geometry}
-            onChange={() => handleToggle("geometry")}
+            checked={toggles.rawPlanes}
+            onChange={() => handleToggle("rawPlanes")}
           />
-          Walls
+          Raw SfM Planes
         </label>
         <label className={`toggle-pill ${toggles.furniture ? "active" : ""}`}>
           <input

@@ -214,6 +214,25 @@ body,
   background: var(--bg-hover);
 }
 
+.supabase-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.supabase-status-dot.online {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.7);
+}
+.supabase-status-dot.ready {
+  background: #3ecf8e;
+  box-shadow: 0 0 6px rgba(62, 207, 142, 0.5);
+}
+.settings-toggle-btn.authenticated {
+  border-color: rgba(62, 207, 142, 0.4);
+  color: var(--text-crisp);
+}
+
 /* ==========================================================================
    Main Stage & Viewport
    ========================================================================== */
@@ -1433,6 +1452,236 @@ body,
   color: var(--text-muted);
   font-size: 16px;
   cursor: pointer;
+}
+
+/* Supabase Cloud Card in Settings Panel */
+.supabase-cloud-card {
+  background: rgba(18, 22, 31, 0.95);
+  border: 1px solid rgba(62, 207, 142, 0.25);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.supabase-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.supabase-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.supabase-dot-pulse {
+  width: 9px;
+  height: 9px;
+  background: #3ecf8e;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #3ecf8e;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.supabase-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.2;
+}
+
+.supabase-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.2;
+  margin-top: 2px;
+}
+
+.supabase-subtitle code {
+  color: #3ecf8e;
+  font-family: monospace;
+}
+
+.supabase-btn-action {
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #3ecf8e;
+  color: #0b101b;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.supabase-btn-action:hover {
+  opacity: 0.9;
+}
+
+.supabase-btn-ghost {
+  padding: 4px 10px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.supabase-btn-ghost:hover {
+  color: #f87171;
+  border-color: #f87171;
+}
+
+.supabase-features-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.supabase-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  background: rgba(62, 207, 142, 0.12);
+  color: #3ecf8e;
+  border-radius: 4px;
+  border: 1px solid rgba(62, 207, 142, 0.2);
+}
+
+.supabase-authenticated-box {
+  background: rgba(255, 255, 255, 0.03);
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+}
+
+.supabase-user-email {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.supabase-user-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.supabase-guest-box {
+  background: rgba(255, 255, 255, 0.02);
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.supabase-guest-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.supabase-alert-success {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+
+.supabase-alert-error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+
+.supabase-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.supabase-tabs {
+  display: flex;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.supabase-tab {
+  flex: 1;
+  padding: 6px;
+  font-size: 11px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.supabase-tab.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-weight: 600;
+}
+
+.supabase-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.supabase-input-group label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.supabase-input {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: 12px;
+  color: #fff;
+}
+
+.supabase-input:focus {
+  outline: none;
+  border-color: #3ecf8e;
+}
+
+.supabase-submit-btn {
+  background: #3ecf8e;
+  color: #0b101b;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  margin-top: 4px;
+}
+
+.supabase-submit-btn:hover {
+  opacity: 0.9;
 }
 
 .studio-error-toast {
