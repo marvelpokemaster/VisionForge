@@ -5,7 +5,8 @@
 * **Current Accomplishments:**
   1. **Up-Axis Arbitration & Determinism (Phase 1/3):**
      * In `src/visionforge/geometry/plane_fitting.py`: Prioritized empirical camera gravity when high-confidence (`gravity_weight >= 0.8`), ensuring noisy floor/wall planar heuristics cannot overturn the vertical axis.
-     * In `plane_fitting.py` and `api.py`: Added explicit seed controls (`seed: Optional[int]`) seeding both Open3D and NumPy random number generators for 100% deterministic RANSAC extraction.
+     * In `plane_fitting.py` (`_numpy_segment_plane` & `extract_dominant_planes`): Implemented a deterministic, vectorized NumPy RANSAC plane segmentation with least-squares PCA refinement active whenever a `seed` is provided, while transparently delegating to test monkeypatches (`replay_segment_plane`) and unseeded Open3D native C++ calls.
+     * In `tests/test_seeded_ransac.py`: Added automated verification verifying reproducible plane models, inlier counts, and bit-identical extraction across repeat runs.
      * In `frontend/src/components/LiveScreen.tsx`: Added clear translational guidance during `INITIALIZING` ("do not rotate in place — walk slowly sideways 1–2m pointing at wall (parallax needed)") and recovery instructions during `LOST`.
   2. **Scale Calibration & Single Coordinate Contract (Phase 2/4):**
      * Eliminated double-scaling bug in `src/visionforge/spatial/clearance.py`: `FloorClearanceEngine` was redundantly multiplying already-scaled room boundaries and floor area by `scale_factor`. Removed redundant multiplication so clearance engine, 3D viewer, and `room_model.json` share the exact canonical metric coordinates.
@@ -30,7 +31,8 @@
 ---
 
 ## 3. Files Modified
-* `src/visionforge/geometry/plane_fitting.py`: Camera gravity weighting precedence and seeded RANSAC plane fitting.
+* `src/visionforge/geometry/plane_fitting.py`: Camera gravity weighting precedence and deterministic seeded NumPy RANSAC plane fitting (`_numpy_segment_plane`).
+* `tests/test_seeded_ransac.py`: Deterministic plane RANSAC unit tests.
 * `src/visionforge/geometry/api.py`: Forwarding `seed` to `extract_dominant_planes`.
 * `src/visionforge/spatial/clearance.py`: Fixed double-application of `scale_factor` in `FloorClearanceEngine`.
 * `src/visionforge/spatial/calibration.py`: Propagating calibrated metrics to `scene_graph.json` and `twin["scene_graph"]`.

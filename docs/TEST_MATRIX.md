@@ -31,6 +31,7 @@ npm run build
 | **P1 Epipolar Geometry** | `tests/test_reconstruction.py` | Automated Unit | **PASS** | 2/2 tests pass (SIFT matching, Essential Matrix). |
 | **P1 Offline SfM** | `outputs/final_demo/p1/` | Physical Video | **PASS** | Registered 24 real cameras, 1,705 3D points, generated `sparse_cloud.ply`. |
 | **P2 Geometry Pipeline** | `tests/test_geometry.py` | Automated Synthetic | **PASS** | 6/6 tests pass (DBSCAN, RANSAC, coplanar merge). |
+| **P2 Deterministic RANSAC** | `tests/test_seeded_ransac.py` | Automated Unit | **PASS** | 3/3 tests pass (vectorized NumPy RANSAC, PCA refinement, bit-identical repeatability). |
 | **P2 Classification** | `tests/test_geometry_classification.py` | Automated Unit | **PASS** | 3/3 tests pass (floor/wall/ceiling heuristics). |
 | **P2 In-Memory API** | `tests/test_geometry_api.py` | Automated Integration | **PASS** | 11/11 tests pass (fixtures stabilized in commit `8c418f3`). |
 | **P2 Incremental Model** | `tests/test_geometry_incremental.py` | Automated Unit | **PASS** | 7/7 tests pass (time/growth gating, empty cloud handling). |

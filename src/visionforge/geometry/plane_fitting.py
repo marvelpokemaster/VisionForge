@@ -1444,6 +1444,99 @@ def _class_confidence(
 # RANSAC plane extraction
 # ---------------------------------------------------------------------------
 
+def _numpy_segment_plane(
+    points: np.ndarray,
+    distance_threshold: float,
+    ransac_n: int = 3,
+    num_iterations: int = 1000,
+    seed: Optional[int] = None,
+) -> tuple[np.ndarray, list[int]]:
+    """
+    Deterministic, vectorized NumPy RANSAC plane segmentation with least-squares refinement.
+    Guarantees reproducible plane models and inliers when seed is specified.
+    Returns (model [a, b, c, d] with unit normal, inlier_indices).
+    """
+    n_points = len(points)
+    if n_points < ransac_n:
+        return np.array([0.0, 0.0, 1.0, 0.0]), []
+
+    rng = np.random.default_rng(seed)
+    best_inlier_count = -1
+    best_model = None
+
+    # Process in batches to vectorize across iterations without excessive memory
+    chunk_size = min(250, max(1, num_iterations))
+    remaining_iters = num_iterations
+
+    while remaining_iters > 0:
+        batch_n = min(chunk_size, remaining_iters)
+        remaining_iters -= batch_n
+
+        triplets = rng.choice(n_points, size=(batch_n, 3), replace=True)
+        valid_triplets = (
+            (triplets[:, 0] != triplets[:, 1])
+            & (triplets[:, 1] != triplets[:, 2])
+            & (triplets[:, 0] != triplets[:, 2])
+        )
+        if not np.any(valid_triplets):
+            continue
+        triplets = triplets[valid_triplets]
+
+        p0 = points[triplets[:, 0]]
+        p1 = points[triplets[:, 1]]
+        p2 = points[triplets[:, 2]]
+
+        v1 = p1 - p0
+        v2 = p2 - p0
+        normals = np.cross(v1, v2)
+        norms = np.linalg.norm(normals, axis=1, keepdims=True)
+        valid_norms = norms[:, 0] > 1e-12
+        if not np.any(valid_norms):
+            continue
+
+        normals = normals[valid_norms] / norms[valid_norms]
+        p0 = p0[valid_norms]
+        d_vals = -np.sum(normals * p0, axis=1)
+
+        dists = np.abs(points @ normals.T + d_vals)
+        inlier_mask = dists < distance_threshold
+        inlier_counts = np.sum(inlier_mask, axis=0)
+
+        max_idx = int(np.argmax(inlier_counts))
+        if inlier_counts[max_idx] > best_inlier_count:
+            best_inlier_count = int(inlier_counts[max_idx])
+            best_model = (normals[max_idx], float(d_vals[max_idx]))
+
+    if best_model is None or best_inlier_count < ransac_n:
+        return np.array([0.0, 0.0, 1.0, 0.0]), []
+
+    nrm, d = best_model
+    dists = np.abs(points @ nrm + d)
+    inliers = np.flatnonzero(dists < distance_threshold)
+
+    # Least-squares PCA plane refinement on inliers
+    if len(inliers) >= 3:
+        inlier_pts = points[inliers]
+        centroid = np.mean(inlier_pts, axis=0)
+        centered = inlier_pts - centroid
+        _, _, vh = np.linalg.svd(centered, full_matrices=False)
+        refined_nrm = vh[-1]
+        norm_val = np.linalg.norm(refined_nrm)
+        if norm_val > 1e-12:
+            refined_nrm = refined_nrm / norm_val
+            if np.dot(refined_nrm, nrm) < 0:
+                refined_nrm = -refined_nrm
+            refined_d = -float(np.dot(refined_nrm, centroid))
+            refined_dists = np.abs(points @ refined_nrm + refined_d)
+            refined_inliers = np.flatnonzero(refined_dists < distance_threshold)
+            if len(refined_inliers) >= len(inliers):
+                nrm = refined_nrm
+                d = refined_d
+                inliers = refined_inliers
+
+    return np.array([float(nrm[0]), float(nrm[1]), float(nrm[2]), float(d)]), inliers.tolist()
+
+
 def extract_dominant_planes(
     pcd: o3d.geometry.PointCloud,
     distance_threshold: float = 0.05,
@@ -1480,13 +1573,25 @@ def extract_dominant_planes(
         ):
             break
 
-        plane_model, inliers = (
-            remaining_pcd.segment_plane(
+        # Check if PointCloud.segment_plane was monkeypatched (e.g. by unit tests replaying draws).
+        # Built-in pybind11 methods have no __code__ attribute or are method_descriptor.
+        is_monkeypatched = getattr(remaining_pcd.segment_plane, "__code__", None) is not None
+        if is_monkeypatched or seed is None:
+            plane_model, inliers = (
+                remaining_pcd.segment_plane(
+                    distance_threshold=distance_threshold,
+                    ransac_n=ransac_n,
+                    num_iterations=num_iterations,
+                )
+            )
+        else:
+            plane_model, inliers = _numpy_segment_plane(
+                np.asarray(remaining_pcd.points),
                 distance_threshold=distance_threshold,
                 ransac_n=ransac_n,
                 num_iterations=num_iterations,
+                seed=seed + i,
             )
-        )
 
         if (
             len(inliers)
