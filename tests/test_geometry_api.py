@@ -203,7 +203,9 @@ def match_planes(planes_a, planes_b):
         for j, q in enumerate(planes_b):
             if j in used:
                 continue
-            score = abs(float(np.dot(p["normal"], q["normal"]))) - 0.01 * abs(p["equation"][3] - q["equation"][3])
+            dot = float(np.dot(p["normal"], q["normal"]))
+            sign = 1.0 if dot >= 0 else -1.0
+            score = abs(dot) - 0.01 * abs(p["equation"][3] * sign - q["equation"][3])
             if score > best_score:
                 best, best_score = j, score
         if best is not None:
