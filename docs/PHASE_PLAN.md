@@ -62,7 +62,7 @@
   * *Evidence:* `tests/test_live_recording.py` passing.
 * [x] **P3.6 Stabilization & Geometry Arbitration (`plane_fitting.py`, `frustum.ts`, `LiveScreen.tsx`)**
   * *Task 1:* Prioritized physical camera gravity (`source_weight = 1.5 * gravity_weight + plane_weight` when `gravity_weight >= 0.8`) over planar heuristics in up-axis fusion.
-  * *Task 2:* Resolved plane label consistency; seeded RANSAC with Open3D and NumPy random seeds for 100% deterministic reproducibility.
+  * *Task 2:* Resolved plane label consistency; implemented deterministic vectorized NumPy RANSAC with least-squares PCA refinement in `_numpy_segment_plane` active when a `seed` is provided, guaranteeing 100% reproducible plane extraction.
   * *Task 3:* Enhanced user guidance in `LiveScreen.tsx` for `INITIALIZING` (parallax/translation requirement) and `LOST` states.
   * *Task 4:* Fixed PINHOLE parameter reading order in `frontend/src/lib/frustum.ts` (`fx, fy, cx, cy`).
   * *Evidence:* Verified in `tests/test_geometry.py`, `tests/test_geometry_api.py`, and `frontend/src/lib/frustum.test.ts`.
