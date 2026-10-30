@@ -15,6 +15,7 @@ import SurfaceInspectorTab from "./components/SurfaceInspectorTab";
 import UploadStudio from "./components/UploadStudio";
 import BackendField, { useApiBase } from "./components/BackendField";
 import AuthPanel from "./components/AuthPanel";
+import LiveScreen from "./components/LiveScreen";
 import { useRoute } from "./lib/useRoute";
 import { navigate } from "./lib/route";
 import { getCurrentUser, getSupabaseClient } from "./lib/supabase";
@@ -23,6 +24,12 @@ import type { User } from "@supabase/supabase-js";
 export type StudioTab = "viewer" | "furnish" | "measure" | "upload";
 
 export default function App() {
+  const route = useRoute();
+  if (route.kind === "live") return <LiveScreen />;
+  return <StudioApp />;
+}
+
+function StudioApp() {
   const route = useRoute();
   const backend = useApiBase();
 
@@ -399,6 +406,9 @@ export default function App() {
                   ✕
                 </button>
               </div>
+              <button type="button" className="live-link" onClick={() => { setShowSettings(false); navigate({ kind: "live" }); }}>
+                ● Live tracking
+              </button>
               <AuthPanel onAuthChange={reloadSession} />
               <BackendField />
             </div>
